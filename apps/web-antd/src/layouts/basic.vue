@@ -37,6 +37,13 @@ const menus = computed(() => {
   const defaultMenus = [
     {
       handler: () => {
+        router.push('/portal');
+      },
+      icon: () => h('i', { class: 'fa-solid fa-book-open text-primary' }),
+      text: '进入前台门户',
+    },
+    {
+      handler: () => {
         openWindow(VBEN_DOC_URL, {
           target: '_blank',
         });

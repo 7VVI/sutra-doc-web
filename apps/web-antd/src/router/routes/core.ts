@@ -7,6 +7,8 @@ import { $t } from '#/locales';
 
 const BasicLayout = () => import('#/layouts/basic.vue');
 const AuthPageLayout = () => import('#/layouts/auth.vue');
+const PortalLayout = () => import('#/layouts/portal.vue');
+
 /** 全局404页面 */
 const fallbackNotFoundRoute: RouteRecordRaw = {
   component: () => import('#/views/_core/fallback/not-found.vue'),
@@ -96,6 +98,68 @@ const coreRoutes: RouteRecordRaw[] = [
         component: () => import('#/views/_core/authentication/register.vue'),
         meta: {
           title: $t('page.auth.register'),
+        },
+      },
+    ],
+  },
+  /**
+   * 前台门户路由 - 不需要登录即可访问
+   */
+  {
+    path: '/portal',
+    name: 'PortalRoot',
+    component: PortalLayout,
+    meta: {
+      title: '藏经阁',
+      hideInMenu: true,
+      hideInTab: true,
+      hideInBreadcrumb: true,
+      ignoreAccess: true,
+    },
+    children: [
+      {
+        path: '',
+        name: 'PortalIndex',
+        component: () => import('#/views/portal/index.vue'),
+        meta: {
+          title: '藏经阁 - 文档检索',
+          ignoreAccess: true,
+        },
+      },
+      {
+        path: 'docs',
+        name: 'PortalDocs',
+        component: () => import('#/views/portal/index.vue'),
+        meta: {
+          title: '藏经阁 - 文档检索',
+          ignoreAccess: true,
+        },
+      },
+      {
+        path: 'muke',
+        name: 'PortalMuke',
+        component: () => import('#/views/portal/index.vue'),
+        meta: {
+          title: '藏经阁 - 企业慕课',
+          ignoreAccess: true,
+        },
+      },
+      {
+        path: 'search',
+        name: 'PortalSearch',
+        component: () => import('#/views/portal/search.vue'),
+        meta: {
+          title: '藏经阁 - 搜索结果',
+          ignoreAccess: true,
+        },
+      },
+      {
+        path: 'share',
+        name: 'PortalShare',
+        component: () => import('#/views/portal/share.vue'),
+        meta: {
+          title: '藏经阁 - 文档分享',
+          ignoreAccess: true,
         },
       },
     ],
