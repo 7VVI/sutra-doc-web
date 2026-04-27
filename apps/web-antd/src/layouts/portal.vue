@@ -6,6 +6,7 @@ import iconMuke from '#/assets/讲武堂.svg';
 
 import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
+import { useAuthStore } from '#/store';
 
 import { useRouter, useRoute, RouterView } from 'vue-router';
 
@@ -13,6 +14,7 @@ const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const accessStore = useAccessStore();
+const authStore = useAuthStore();
 
 const appName = computed(() => preferences.app.name);
 const logo = computed(() => preferences.logo.source);
@@ -65,8 +67,16 @@ function handleScroll() {
   navbarShadow.value = window.scrollY > 16;
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('scroll', handleScroll, { passive: true });
+  // 如果已登录但没有用户信息，主动获取
+  if (isLoggedIn.value && !userStore.userInfo) {
+    try {
+      await authStore.fetchUserInfo();
+    } catch (e) {
+      console.error('获取用户信息失败:', e);
+    }
+  }
 });
 
 onUnmounted(() => {

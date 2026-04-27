@@ -114,7 +114,8 @@ const alovaInstance = createAlova({
     if (
       ['DELETE', 'GET'].includes(request.type?.toUpperCase() || '') &&
       config.params &&
-      !config.paramsSerializer
+      !config.paramsSerializer &&
+      !request.url?.includes('?')
     ) {
       /**
        * 1. 格式化参数 微服务在传递区间时间选择(后端的params Map类型参数)需要格式化key 否则接收不到

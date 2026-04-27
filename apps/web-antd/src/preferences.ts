@@ -39,6 +39,10 @@ export const overridesPreferences = defineOverridesPreferences({
      */
     enableRefreshToken: false,
     /**
+     * 登录后默认进入portal首页
+     */
+    defaultHomePath: '/portal',
+    /**
      * 这里可以设置默认头像 url链接或vite导入的图片链接
      */
     // defaultAvatar: '',

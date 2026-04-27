@@ -107,21 +107,24 @@ export function previewDoc(docId: number) {
   return alovaInstance.get<DocPreviewVo>(`/kb/doc/preview/${docId}`);
 }
 
-/** 获取部门下的文件列表 */
-export interface DeptFile {
-  docId: number;
-  docTitle: string;
-  fileType: string;
-  fileSize: number;
-  folderId: number;
-  folderName: string;
-  folderPath: string;
-  createTime: string;
-  downloadCount: number;
+/** 部门文档目录树节点 */
+export interface DeptDocTreeNode {
+  type: 'folder' | 'doc';
+  id: number;
+  name: string;
+  parentId: number;
+  hasChildren?: boolean;
+  sortOrder?: number;
+  fileType?: string;
+  fileSize?: number;
+  status?: number;
+  releaseFlag?: number;
+  createTime?: string;
 }
 
-export function getDeptFiles(deptId: number) {
-  return alovaInstance.get<DeptFile[]>(`/kb/doc/dept/${deptId}`);
+/** 获取部门文档目录树（懒加载，一层一层加载） */
+export function getDeptDocTree(deptId: number, parentId = 0) {
+  return alovaInstance.get<DeptDocTreeNode[]>(`/kb/folder/deptDocTree?deptId=${deptId}&parentId=${parentId}`, {});
 }
 
 /** 下载文档（携带鉴权头，当前页触发下载） */
