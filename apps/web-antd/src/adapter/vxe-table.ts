@@ -48,6 +48,10 @@ setupVbenVxeTable({
           // 可拖拽列宽
           resizable: true,
         },
+        // 拖拽列宽时不改变表格整体宽度，只在列之间重新分配
+        resizableConfig: {
+          syncResize: false,
+        },
         // 右上角工具栏
         toolbarConfig: {
           // 自定义列

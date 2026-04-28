@@ -149,6 +149,15 @@ function backMenuToVbenMenu(
     /**
      * 处理不同组件
      */
+    // 处理空 component 或 '#'，且有子菜单的情况（目录类型）
+    if (
+      (!menu.component || menu.component === '#' || menu.component === '') &&
+      menu.children &&
+      menu.children.length > 0
+    ) {
+      menu.component = 'Layout';
+    }
+
     switch (menu.component) {
       /**
        * iframe内嵌
@@ -217,6 +226,7 @@ function backMenuToVbenMenu(
     if (menu.children && menu.children.length > 0) {
       vbenRoute.children = backMenuToVbenMenu(menu.children, menu.path);
     }
+
     // 添加
     resultList.push(vbenRoute);
   });

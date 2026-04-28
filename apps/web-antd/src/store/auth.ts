@@ -59,9 +59,11 @@ export const useAuthStore = defineStore('auth', () => {
       if (accessStore.loginExpired) {
         accessStore.setLoginExpired(false);
       } else {
+        // 登录成功后跳转到后台管理页面，而不是 portal
+        // portal 是前台页面，不需要登录即可访问
         onSuccess
           ? await onSuccess?.()
-          : await router.push(preferences.app.defaultHomePath);
+          : await router.push('/');
       }
 
       if (userInfo?.realName) {

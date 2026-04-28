@@ -11,6 +11,22 @@ import { useAuthStore } from '#/store';
 import { generateAccess } from './access';
 
 /**
+ * 递归查找第一个叶子菜单（实际页面）
+ */
+function findFirstLeafMenu(menus: any[]): any {
+  for (const menu of menus) {
+    if (menu.children && menu.children.length > 0) {
+      const found = findFirstLeafMenu(menu.children);
+      if (found) return found;
+    }
+    if (menu.path && !menu.meta?.hideInMenu && !menu.meta?.hideChildrenInMenu) {
+      return menu;
+    }
+  }
+  return null;
+}
+
+/**
  * 通用守卫配置
  * @param router
  */
@@ -87,6 +103,18 @@ function setupAccessGuard(router: Router) {
 
     // 是否已经生成过动态路由
     if (accessStore.isAccessChecked) {
+      // 如果用户已登录且访问根路径或portal，跳转到后台管理页面
+      if (to.path === '/' || to.path === '/portal') {
+        const accessMenus = accessStore.accessMenus;
+        const firstLeafMenu = findFirstLeafMenu(accessMenus || []);
+        if (firstLeafMenu?.path) {
+          return { path: firstLeafMenu.path, replace: true };
+        }
+        // 如果没有菜单，使用 userInfo.homePath 或保持当前路径
+        if (userInfo.homePath && userInfo.homePath !== '/portal') {
+          return { path: userInfo.homePath, replace: true };
+        }
+      }
       return true;
     }
 
@@ -110,13 +138,29 @@ function setupAccessGuard(router: Router) {
     accessStore.setAccessMenus(accessibleMenus);
     accessStore.setAccessRoutes(accessibleRoutes);
     accessStore.setIsAccessChecked(true);
-    const redirectPath = (from.query.redirect ??
-      (to.path === preferences.app.defaultHomePath
-        ? userInfo.homePath || preferences.app.defaultHomePath
-        : to.fullPath)) as string;
+
+    // 计算跳转目标
+    let redirectPath: string;
+    if (from.query.redirect) {
+      redirectPath = decodeURIComponent(from.query.redirect as string);
+    } else if (to.path === '/' || to.path === '/portal') {
+      // 登录后访问根路径或portal，跳转到后台管理页面
+      const firstLeafMenu = findFirstLeafMenu(accessibleMenus || []);
+      if (firstLeafMenu?.path) {
+        redirectPath = firstLeafMenu.path;
+      } else if (userInfo.homePath && userInfo.homePath !== '/portal') {
+        redirectPath = userInfo.homePath;
+      } else {
+        redirectPath = to.fullPath;
+      }
+    } else if (to.path === preferences.app.defaultHomePath) {
+      redirectPath = userInfo.homePath || preferences.app.defaultHomePath;
+    } else {
+      redirectPath = to.fullPath;
+    }
 
     return {
-      ...router.resolve(decodeURIComponent(redirectPath)),
+      ...router.resolve(redirectPath),
       replace: true,
     };
   });
