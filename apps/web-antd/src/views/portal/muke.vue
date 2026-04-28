@@ -351,7 +351,7 @@ function setCategoryFilter(tagId: number | null) {
         <div class="main-header">
           <div class="main-title-area">
             <div class="main-title">讲武堂</div>
-            <div class="main-count">共 {{ total }} 门课程</div>
+            <div class="main-desc">让每一次学习，学以致用</div>
           </div>
           <div class="main-search">
             <input type="text" v-model="mukeSearch" placeholder="搜索课程名称、讲师...">
@@ -693,8 +693,9 @@ function setCategoryFilter(tagId: number | null) {
 }
 
 .main-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: -1px;
   color: #1A1A1A;
   display: flex;
   align-items: center;
@@ -709,11 +710,12 @@ function setCategoryFilter(tagId: number | null) {
   font-size: 26px;
 }
 
-.main-count {
-  font-size: 12px;
+.main-desc {
+  font-size: 14px;
   color: #A0A0A0;
   font-weight: 300;
   margin-bottom: 12px;
+  letter-spacing: 0.3px;
 }
 
 .main-search {

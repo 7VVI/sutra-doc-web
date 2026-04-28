@@ -7,6 +7,8 @@ import iconMuke from '#/assets/讲武堂.svg';
 import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 import { useAuthStore } from '#/store';
+import { generateAccess } from '#/router/access';
+import { accessRoutes } from '#/router/routes';
 
 import { useRouter, useRoute, RouterView } from 'vue-router';
 
@@ -49,6 +51,40 @@ provide('portalActiveTab', readonly(activeTab));
 provide('setPortalActiveTab', setActiveTab);
 
 function goToAdmin() {
+  // 获取后端返回的菜单，跳转到第一个可访问的路由
+  const accessMenus = accessStore.accessMenus;
+
+  // 递归查找第一个叶子菜单（实际页面）
+  function findFirstLeafMenu(menus: any[]): any {
+    for (const menu of menus) {
+      // 如果有子菜单，递归查找
+      if (menu.children && menu.children.length > 0) {
+        const found = findFirstLeafMenu(menu.children);
+        if (found) return found;
+      }
+      // 没有子菜单且路径存在且不隐藏，就是叶子菜单
+      if (menu.path && !menu.meta?.hideInMenu && !menu.meta?.hideChildrenInMenu) {
+        return menu;
+      }
+    }
+    return null;
+  }
+
+  const firstLeafMenu = findFirstLeafMenu(accessMenus || []);
+  if (firstLeafMenu?.path) {
+    router.push(firstLeafMenu.path);
+    return;
+  }
+
+  // 如果没有菜单，尝试跳转到第一个 accessRoute
+  const accessRoutes = accessStore.accessRoutes;
+  const firstRoute = accessRoutes?.find((r: any) => r.path && !r.meta?.hideInMenu);
+  if (firstRoute?.path) {
+    router.push(firstRoute.path);
+    return;
+  }
+
+  // 兜底：跳转到根路由让路由守卫处理
   router.push('/');
 }
 
@@ -69,12 +105,29 @@ function handleScroll() {
 
 onMounted(async () => {
   window.addEventListener('scroll', handleScroll, { passive: true });
-  // 如果已登录但没有用户信息，主动获取
-  if (isLoggedIn.value && !userStore.userInfo) {
-    try {
-      await authStore.fetchUserInfo();
-    } catch (e) {
-      console.error('获取用户信息失败:', e);
+  // 如果已登录
+  if (isLoggedIn.value) {
+    // 获取用户信息
+    if (!userStore.userInfo) {
+      try {
+        await authStore.fetchUserInfo();
+      } catch (e) {
+        console.error('获取用户信息失败:', e);
+      }
+    }
+    // 如果路由还没生成，主动生成
+    if (!accessStore.isAccessChecked) {
+      try {
+        const { accessibleMenus, accessibleRoutes } = await generateAccess({
+          router,
+          routes: accessRoutes,
+        });
+        accessStore.setAccessMenus(accessibleMenus);
+        accessStore.setAccessRoutes(accessibleRoutes);
+        accessStore.setIsAccessChecked(true);
+      } catch (e) {
+        console.error('生成路由失败:', e);
+      }
     }
   }
 });
