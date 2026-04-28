@@ -1,258 +1,517 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import {
+  getMediaVideoPage,
+  getMediaTagList,
+  getMediaVideoDetail,
+  getMediaVideoAttachments,
+  downloadMediaAttachment,
+  likeMediaVideo,
+  unlikeMediaVideo,
+  getMediaPlayUrl,
+} from '#/api/media';
+import type { MediaVideoVo, MediaTagVo, MediaVideoAttachmentVo } from '#/api/media';
 
-// 慕课数据
-const courses = [
-  {title:'AI+金融产品经理实战营',cat:'product',direction:'business',author:'张明远',year:'2026',duration:'45:20',views:3842,date:'2026-04-03',progress:0,seed:'ai-finance',attachments:[
-    {name:'AI金融产品思维导图.pdf',ext:'pdf',size:'1.2 MB'},{name:'课程案例数据集.xlsx',ext:'xlsx',size:'3.8 MB'},{name:'实战作业模板.docx',ext:'docx',size:'560 KB'}
-  ]},
-  {title:'飞书团队高效协作打造指南',cat:'tools',direction:'business',author:'李思涵',year:'2026',duration:'32:15',views:5210,date:'2026-04-01',progress:65,seed:'feishu-team',attachments:[
-    {name:'飞书使用手册.pdf',ext:'pdf',size:'4.5 MB'},{name:'团队协作SOP模板.docx',ext:'docx',size:'890 KB'},{name:'自动化工作流配置指南.pdf',ext:'pdf',size:'2.1 MB'}
-  ]},
-  {title:'数据分析思维与Python实战',cat:'tech',direction:'tech',author:'王博文',year:'2026',duration:'58:40',views:2967,date:'2026-03-30',progress:30,seed:'data-python',attachments:[
-    {name:'Python基础代码包.zip',ext:'zip',size:'12.6 MB'},{name:'数据分析案例数据.xlsx',ext:'xlsx',size:'5.2 MB'},{name:'课程讲义.pdf',ext:'pdf',size:'8.9 MB'}
-  ]},
-  {title:'高效能人士的七个习惯',cat:'soft',direction:'manage',author:'陈雅琪',year:'2025',duration:'28:50',views:6124,date:'2025-12-28',progress:100,seed:'seven-habits',attachments:[
-    {name:'七个习惯践行手册.pdf',ext:'pdf',size:'1.8 MB'},{name:'个人效能评估表.xlsx',ext:'xlsx',size:'340 KB'}
-  ]},
-  {title:'ISO质量管理体系内审员培训',cat:'compliance',direction:'quality',author:'刘国强',year:'2025',duration:'1:12:30',views:1856,date:'2025-11-25',progress:0,seed:'iso-quality',attachments:[
-    {name:'ISO9001标准条文解读.pdf',ext:'pdf',size:'3.4 MB'},{name:'内审检查表模板.xlsx',ext:'xlsx',size:'1.1 MB'},{name:'不符合项报告模板.docx',ext:'docx',size:'280 KB'},{name:'体系文件编写指南.pdf',ext:'pdf',size:'2.6 MB'}
-  ]},
-  {title:'OKR目标管理落地工作坊',cat:'manage',direction:'manage',author:'赵瑞芳',year:'2025',duration:'41:10',views:4380,date:'2025-10-22',progress:45,seed:'okr-workshop',attachments:[
-    {name:'OKR制定模板.xlsx',ext:'xlsx',size:'680 KB'},{name:'目标拆解方法论.pdf',ext:'pdf',size:'1.5 MB'}
-  ]},
-  {title:'大模型应用开发入门到精通',cat:'tech',direction:'tech',author:'孙浩然',year:'2026',duration:'1:05:20',views:7821,date:'2026-04-04',progress:10,seed:'llm-develop',attachments:[
-    {name:'大模型开发环境搭建指南.pdf',ext:'pdf',size:'2.3 MB'},{name:'Prompt工程模板库.docx',ext:'docx',size:'1.8 MB'},{name:'示例代码仓库.zip',ext:'zip',size:'8.5 MB'},{name:'API调用速查表.pdf',ext:'pdf',size:'420 KB'}
-  ]},
-  {title:'企业信息安全意识培训',cat:'compliance',direction:'quality',author:'周婉清',year:'2024',duration:'22:35',views:9032,date:'2024-09-18',progress:100,seed:'info-security',attachments:[
-    {name:'安全意识培训手册.pdf',ext:'pdf',size:'6.7 MB'},{name:'常见钓鱼邮件识别.pdf',ext:'pdf',size:'1.2 MB'},{name:'密码安全管理规范.docx',ext:'docx',size:'350 KB'}
-  ]},
-  {title:'项目管理PMP核心方法论',cat:'manage',direction:'manage',author:'吴启航',year:'2024',duration:'52:45',views:3156,date:'2024-08-15',progress:0,seed:'pmp-method',attachments:[
-    {name:'PMP知识体系导图.pdf',ext:'pdf',size:'2.8 MB'},{name:'项目计划模板.xlsx',ext:'xlsx',size:'1.4 MB'},{name:'风险管理登记表.xlsx',ext:'xlsx',size:'760 KB'},{name:'敏捷实践指南.pdf',ext:'pdf',size:'3.1 MB'},{name:'项目收尾清单.docx',ext:'docx',size:'290 KB'}
-  ]}
-];
+// 标签数据
+const categoryTags = ref<MediaTagVo[]>([]);
+const directionTags = ref<MediaTagVo[]>([]);
 
-const catLabel: Record<string, string> = {product:'产品',tech:'技术',manage:'管理',compliance:'合规',tools:'工具',soft:'软技能'};
-const catColor: Record<string, string> = {product:'#D4841C',tech:'#3B6FB5',manage:'#6B5CE7',compliance:'#C44536',tools:'#2D8B55',soft:'#B8860B'};
-const dirLabel: Record<string, string> = {business:'业务方向',tech:'技术方向',manage:'管理方向',quality:'质量方向'};
-const aiCls = (e: string) => ({xlsx:'ai-xlsx',docx:'ai-docx',pdf:'ai-pdf',pptx:'ai-pptx',zip:'ai-zip'})[e]||'ai-pdf';
-const aiFA = (e: string) => ({xlsx:'fa-solid fa-file-excel',docx:'fa-solid fa-file-word',pdf:'fa-solid fa-file-pdf',pptx:'fa-solid fa-file-powerpoint',zip:'fa-solid fa-file-zipper'})[e]||'fa-solid fa-file';
+// 视频列表
+const videos = ref<MediaVideoVo[]>([]);
+const total = ref(0);
+const loading = ref(false);
+const currentPage = ref(1);
+const pageSize = 16;
 
-// 状态
+// 筛选状态
 const mukeSearch = ref('');
 const mukeSort = ref('new');
-const filterOpen = ref(false);
-const fDirection = ref('all');
-const fCategory = ref('all');
-const fAuthor = ref('all');
-const fYear = ref('all');
+const sidebarExpanded = ref(false);
+const fDirection = ref<number | null>(null);
+const fCategory = ref<number | null>(null);
+const fYear = ref<string>('all');
+const fAuthor = ref<string>('all');
 
-// 作者列表
-const authors = [...new Set(courses.map(c => c.author))].sort((a, b) => a.localeCompare(b, 'zh'));
-
-// 筛选数量
+// 筛选数量badge
 const filterBadge = computed(() => {
   let n = 0;
-  if (fDirection.value !== 'all') n++;
-  if (fCategory.value !== 'all') n++;
-  if (fAuthor.value !== 'all') n++;
+  if (fDirection.value) n++;
+  if (fCategory.value) n++;
   if (fYear.value !== 'all') n++;
+  if (fAuthor.value !== 'all') n++;
   return n;
 });
 
-// 筛选后的列表
-const filteredList = computed(() => {
-  let list = [...courses];
-  if (fDirection.value !== 'all') list = list.filter(c => c.direction === fDirection.value);
-  if (fCategory.value !== 'all') list = list.filter(c => c.cat === fCategory.value);
-  if (fAuthor.value !== 'all') list = list.filter(c => c.author === fAuthor.value);
-  if (fYear.value !== 'all') list = list.filter(c => c.year === fYear.value);
-  if (mukeSearch.value) {
-    const t = mukeSearch.value.toLowerCase();
-    list = list.filter(c => c.title.toLowerCase().includes(t) || c.author.toLowerCase().includes(t));
+// Toast通知
+const toasts = ref<{ id: number; msg: string }[]>([]);
+let toastIdCounter = 0;
+
+function showToast(msg: string, dur = 2500) {
+  const id = ++toastIdCounter;
+  toasts.value.push({ id, msg });
+  setTimeout(() => {
+    toasts.value = toasts.value.filter(t => t.id !== id);
+  }, dur);
+}
+
+// 加载标签
+async function loadTags() {
+  try {
+    const catRes = await getMediaTagList(1); // type=1 分类标签
+    const dirRes = await getMediaTagList(2); // type=2 方向标签
+    categoryTags.value = (catRes as any)?.data || catRes || [];
+    directionTags.value = (dirRes as any)?.data || dirRes || [];
+  } catch (e) {
+    console.error('加载标签失败:', e);
   }
-  if (mukeSort.value === 'new') list.sort((a, b) => b.date.localeCompare(a.date));
-  else if (mukeSort.value === 'hot') list.sort((a, b) => b.views - a.views);
-  else if (mukeSort.value === 'name') list.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
-  return list;
+}
+
+// 加载视频列表
+async function loadVideos() {
+  loading.value = true;
+  try {
+    const query: any = {
+      pageNum: currentPage.value,
+      pageSize,
+      keyword: mukeSearch.value || undefined,
+    };
+    if (fCategory.value) query.categoryIds = [fCategory.value];
+    if (fDirection.value) query.directionIds = [fDirection.value];
+    if (mukeSort.value === 'new') query.sort = 'createTime-desc';
+    else if (mukeSort.value === 'hot') query.sort = 'viewCount-desc';
+    else if (mukeSort.value === 'name') query.sort = 'title-asc';
+
+    const res = await getMediaVideoPage(query);
+    const data = res as any;
+    videos.value = data?.rows || [];
+    total.value = data?.total || 0;
+  } catch (e) {
+    console.error('加载视频失败:', e);
+    videos.value = [];
+    total.value = 0;
+  } finally {
+    loading.value = false;
+  }
+}
+
+// 初始化加载
+onMounted(() => {
+  loadTags();
+  loadVideos();
 });
 
-// 附件弹窗
-const attachModalOpen = ref(false);
-const selectedCourse = ref<any>(null);
+// 监听筛选条件变化
+watch([mukeSearch, mukeSort, fDirection, fCategory, fYear, fAuthor], () => {
+  currentPage.value = 1;
+  loadVideos();
+});
 
-function openAttach(course: any) {
-  selectedCourse.value = course;
-  attachModalOpen.value = true;
+// 分页
+function goToPage(page: number) {
+  if (page < 1 || page > Math.ceil(total.value / pageSize)) return;
+  currentPage.value = page;
+  loadVideos();
 }
 
-function closeAttach() {
-  attachModalOpen.value = false;
-  selectedCourse.value = null;
-}
-
+// 重置筛选
 function resetFilters() {
-  fDirection.value = 'all';
-  fCategory.value = 'all';
-  fAuthor.value = 'all';
+  fDirection.value = null;
+  fCategory.value = null;
   fYear.value = 'all';
+  fAuthor.value = 'all';
+  showToast('已重置全部筛选条件');
+}
+
+// 格式化时长
+function formatDuration(seconds: number | undefined) {
+  if (!seconds) return '00:00';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// 格式化文件大小
+function formatFileSize(bytes: number) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// 格式化日期
+function formatDate(d: string) {
+  if (!d) return '';
+  return d.substring(0, 10);
+}
+
+// 播放视频
+function playVideo(video: MediaVideoVo) {
+  const url = getMediaPlayUrl(video.videoId);
+  window.open(url, '_blank');
+}
+
+// 详情弹窗
+const detailModalOpen = ref(false);
+const detailLoading = ref(false);
+const selectedVideo = ref<MediaVideoVo | null>(null);
+const videoDetail = ref<any>(null);
+const videoAttachments = ref<MediaVideoAttachmentVo[]>([]);
+const likingVideoId = ref<number | null>(null);
+
+async function openDetail(video: MediaVideoVo) {
+  selectedVideo.value = video;
+  videoDetail.value = null;
+  videoAttachments.value = [];
+  detailModalOpen.value = true;
+  detailLoading.value = true;
+  try {
+    const [detailRes, attachRes] = await Promise.all([
+      getMediaVideoDetail(video.videoId),
+      getMediaVideoAttachments(video.videoId),
+    ]);
+    videoDetail.value = (detailRes as any)?.data || detailRes;
+    videoAttachments.value = (attachRes as any)?.data || attachRes || [];
+  } catch (e) {
+    console.error('加载详情失败:', e);
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function closeDetail() {
+  detailModalOpen.value = false;
+  selectedVideo.value = null;
+  videoDetail.value = null;
+  videoAttachments.value = [];
+}
+
+// 卡片点赞
+async function toggleLikeOnCard(video: MediaVideoVo, event: Event) {
+  event.stopPropagation();
+  if (likingVideoId.value === video.videoId) return;
+  likingVideoId.value = video.videoId;
+  try {
+    if (video.hasLiked) {
+      await unlikeMediaVideo(video.videoId);
+      video.hasLiked = false;
+      video.likeCount--;
+    } else {
+      await likeMediaVideo(video.videoId);
+      video.hasLiked = true;
+      video.likeCount++;
+      showToast('点赞成功');
+    }
+  } catch (e) {
+    console.error('点赞操作失败:', e);
+  } finally {
+    likingVideoId.value = null;
+  }
+}
+
+// 详情弹窗点赞
+async function handleLike() {
+  if (!videoDetail.value || likingVideoId.value) return;
+  likingVideoId.value = videoDetail.value.videoId;
+  try {
+    const isLiked = videoDetail.value.hasLiked;
+    if (isLiked) {
+      await unlikeMediaVideo(videoDetail.value.videoId);
+      videoDetail.value.hasLiked = false;
+      videoDetail.value.likeCount--;
+    } else {
+      await likeMediaVideo(videoDetail.value.videoId);
+      videoDetail.value.hasLiked = true;
+      videoDetail.value.likeCount++;
+      showToast('点赞成功');
+    }
+    // 同步更新列表中的状态
+    const v = videos.value.find(v => v.videoId === videoDetail.value.videoId);
+    if (v) {
+      v.hasLiked = videoDetail.value.hasLiked;
+      v.likeCount = videoDetail.value.likeCount;
+    }
+  } catch (e) {
+    console.error('点赞操作失败:', e);
+  } finally {
+    likingVideoId.value = null;
+  }
+}
+
+async function downloadAttach(attach: MediaVideoAttachmentVo) {
+  try {
+    await downloadMediaAttachment(attach.attachmentId, attach.fileName);
+    showToast(`开始下载「${attach.fileName}」`);
+  } catch (e) {
+    console.error('下载失败:', e);
+    showToast('下载失败，请稍后重试');
+  }
+}
+
+// 分页数组
+const pageNumbers = computed(() => {
+  const pages: (number | string)[] = [];
+  const tp = Math.ceil(total.value / pageSize);
+  const cp = currentPage.value;
+  if (tp <= 7) {
+    for (let i = 1; i <= tp; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (cp > 3) pages.push('...');
+    for (let i = Math.max(2, cp - 1); i <= Math.min(tp - 1, cp + 1); i++) pages.push(i);
+    if (cp < tp - 2) pages.push('...');
+    pages.push(tp);
+  }
+  return pages;
+});
+
+const totalPages = computed(() => Math.ceil(total.value / pageSize));
+
+// 辅助函数
+const aiCls = (e: string) => ({xlsx:'ai-xlsx',docx:'ai-docx',pdf:'ai-pdf',pptx:'ai-pptx',zip:'ai-zip'})[e]||'ai-pdf';
+const aiFA = (e: string) => ({xlsx:'fa-solid fa-file-excel',docx:'fa-solid fa-file-word',pdf:'fa-solid fa-file-pdf',pptx:'fa-solid fa-file-powerpoint',zip:'fa-solid fa-file-zipper'})[e]||'fa-solid fa-file';
+
+// 点击右侧区域自动折叠（无筛选条件时）
+function handleMainClick() {
+  if (sidebarExpanded.value && filterBadge.value === 0) {
+    sidebarExpanded.value = false;
+  }
+}
+
+// 切换侧边栏展开状态
+function toggleSidebar() {
+  sidebarExpanded.value = !sidebarExpanded.value;
+}
+
+// 设置方向筛选
+function setDirectionFilter(tagId: number | null) {
+  fDirection.value = tagId;
+}
+
+// 设置分类筛选
+function setCategoryFilter(tagId: number | null) {
+  fCategory.value = tagId;
 }
 </script>
 
 <template>
   <div class="portal-muke-page">
-    <!-- Hero区域 -->
-    <section class="muke-hero">
-      <h1>讲武堂 <span>M</span></h1>
-      <p>精选内部培训课程，涵盖产品、技术、管理、合规等多领域</p>
-      <div class="muke-search">
-        <input type="text" v-model="mukeSearch" placeholder="搜索课程名称、讲师...">
-        <i class="fa-solid fa-magnifying-glass"></i>
-      </div>
-    </section>
-
-    <!-- 筛选面板 -->
-    <div class="filter-panel">
-      <div class="filter-toggle" :class="{ open: filterOpen }" @click="filterOpen = !filterOpen">
-        <i class="fa-solid fa-chevron-down"></i>
-        <span>筛选条件</span>
-        <span v-if="filterBadge > 0" class="filter-badge">{{ filterBadge }}</span>
-      </div>
-      <div class="filter-body" :class="{ open: filterOpen }">
-        <div class="filter-grid">
-          <div class="filter-group">
-            <label class="filter-group-label">方向</label>
-            <select class="filter-select" v-model="fDirection">
-              <option value="all">全部方向</option>
-              <option value="business">业务方向</option>
-              <option value="tech">技术方向</option>
-              <option value="manage">管理方向</option>
-              <option value="quality">质量方向</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label class="filter-group-label">分类</label>
-            <select class="filter-select" v-model="fCategory">
-              <option value="all">全部分类</option>
-              <option value="product">产品</option>
-              <option value="tech">技术</option>
-              <option value="manage">管理</option>
-              <option value="compliance">合规</option>
-              <option value="tools">工具</option>
-              <option value="soft">软技能</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label class="filter-group-label">作者</label>
-            <select class="filter-select" v-model="fAuthor">
-              <option value="all">全部作者</option>
-              <option v-for="a in authors" :key="a" :value="a">{{ a }}</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label class="filter-group-label">年份</label>
-            <select class="filter-select" v-model="fYear">
-              <option value="all">全部年份</option>
-              <option value="2026">2026</option>
-              <option value="2025">2025</option>
-              <option value="2024">2024</option>
-            </select>
+    <!-- 主布局 -->
+    <div class="muke-layout">
+      <!-- 左侧筛选面板 -->
+      <aside class="muke-sidebar" :class="{ expanded: sidebarExpanded }">
+        <div class="sidebar-header" @click="toggleSidebar">
+          <i class="fa-solid fa-sliders"></i>
+          <div class="sidebar-header-text">
+            筛选条件
+            <span v-if="filterBadge > 0" class="filter-active-count">{{ filterBadge }}</span>
           </div>
         </div>
-        <div class="filter-actions">
-          <button class="filter-btn-reset" @click="resetFilters">
-            <i class="fa-solid fa-rotate-left"></i>重置筛选
+
+        <div class="filter-group">
+          <div class="filter-label">方向</div>
+          <div class="filter-tags">
+            <span class="filter-tag" :class="{ active: !fDirection }" @click="setDirectionFilter(null)">全部</span>
+            <span v-for="t in directionTags" :key="t.tagId" class="filter-tag" :class="{ active: fDirection === t.tagId }" @click="setDirectionFilter(t.tagId)">{{ t.tagName }}</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">分类</div>
+          <div class="filter-tags">
+            <span class="filter-tag" :class="{ active: !fCategory }" @click="setCategoryFilter(null)">全部</span>
+            <span v-for="t in categoryTags" :key="t.tagId" class="filter-tag" :class="{ active: fCategory === t.tagId }" @click="setCategoryFilter(t.tagId)">{{ t.tagName }}</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">年份</div>
+          <select class="filter-select" v-model="fYear">
+            <option value="all">全部年份</option>
+            <option value="2026">2026</option>
+            <option value="2025">2025</option>
+            <option value="2024">2024</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-label">讲师</div>
+          <select class="filter-select" v-model="fAuthor">
+            <option value="all">全部讲师</option>
+          </select>
+        </div>
+
+        <div class="filter-reset" @click="resetFilters">
+          <i class="fa-solid fa-rotate-left"></i>
+          重置筛选
+        </div>
+      </aside>
+
+      <!-- 右侧主内容 -->
+      <main class="muke-main" @click="handleMainClick">
+        <div class="main-header">
+          <div class="main-title-area">
+            <div class="main-title">讲武堂</div>
+            <div class="main-count">共 {{ total }} 门课程</div>
+          </div>
+          <div class="main-search">
+            <input type="text" v-model="mukeSearch" placeholder="搜索课程名称、讲师...">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </div>
+        </div>
+
+        <div class="sort-bar">
+          <span class="sort-left"></span>
+          <div class="sort-right">
+            <button class="sort-btn" :class="{ active: mukeSort === 'new' }" @click="mukeSort = 'new'">
+              <i class="fa-regular fa-clock"></i>最新
+            </button>
+            <button class="sort-btn" :class="{ active: mukeSort === 'hot' }" @click="mukeSort = 'hot'">
+              <i class="fa-solid fa-fire"></i>热门
+            </button>
+            <button class="sort-btn" :class="{ active: mukeSort === 'name' }" @click="mukeSort = 'name'">
+              <i class="fa-solid fa-arrow-down-a-z"></i>名称
+            </button>
+          </div>
+        </div>
+
+        <!-- 加载中 -->
+        <div v-if="loading" class="muke-loading">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+          <span>加载中...</span>
+        </div>
+
+        <!-- 课程网格 -->
+        <div v-else-if="videos.length > 0" class="course-grid">
+          <div v-for="(v, idx) in videos" :key="v.videoId" class="course-card" @click="openDetail(v)" :style="{ animationDelay: `${idx * 0.04}s` }">
+            <div class="course-thumb">
+              <img v-if="v.thumbnailUrl" :src="v.thumbnailUrl" :alt="v.title" loading="lazy">
+              <div v-else class="thumb-placeholder"><i class="fa-solid fa-video"></i></div>
+              <div class="course-thumb-overlay"></div>
+              <div class="course-cat-badge">{{ v.authorName || '课程' }}</div>
+              <div class="course-views"><i class="fa-regular fa-eye"></i>{{ v.viewCount.toLocaleString() }}</div>
+              <div class="course-play"><i class="fa-solid fa-play"></i></div>
+            </div>
+            <div class="course-body">
+              <div class="course-title-wrapper">
+                <div class="course-title">{{ v.title }}</div>
+                <div v-if="v.attachmentCount > 0" class="course-attach-badge-inline">
+                  <i class="fa-solid fa-paperclip"></i>{{ v.attachmentCount }}
+                </div>
+              </div>
+              <div class="course-meta-row">
+                <div class="meta-author">
+                  <div class="meta-avatar">{{ v.authorName?.charAt(0) || '?' }}</div>
+                  <span>{{ v.authorName || '未知' }}</span>
+                </div>
+                <div class="meta-date"><i class="fa-regular fa-calendar"></i>{{ formatDate(v.createTime) }}</div>
+              </div>
+            </div>
+            <div class="course-footer">
+              <div class="course-like" @click="toggleLikeOnCard(v, $event)">
+                <div class="like-btn" :class="{ active: v.hasLiked }">
+                  <i :class="likingVideoId === v.videoId ? 'fa-solid fa-spinner fa-spin' : (v.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
+                </div>
+                <span class="like-count">{{ v.likeCount }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div v-else class="empty-state show">
+          <div class="empty-icon"><i class="fa-regular fa-circle-play"></i></div>
+          <div class="empty-title">未找到匹配课程</div>
+          <div class="empty-desc">请尝试调整筛选条件或关键词</div>
+        </div>
+
+        <!-- 分页 -->
+        <div v-if="totalPages > 1 && !loading" class="muke-pagination">
+          <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            <i class="fa-solid fa-chevron-left"></i>
+          </button>
+          <template v-for="p in pageNumbers" :key="p">
+            <span v-if="p === '...'" class="page-ellipsis">…</span>
+            <button v-else class="page-btn" :class="{ active: p === currentPage }" @click="goToPage(p as number)">
+              {{ p }}
+            </button>
+          </template>
+          <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            <i class="fa-solid fa-chevron-right"></i>
           </button>
         </div>
-      </div>
+      </main>
     </div>
 
-    <!-- 课程网格 -->
-    <section class="muke-grid-area">
-      <div class="muke-grid-bar">
-        <div class="muke-grid-left">
-          <span class="muke-grid-title">课程列表</span>
-          <span class="muke-grid-count">共 {{ filteredList.length }} 门课程</span>
-        </div>
-        <div class="muke-grid-sort">
-          <button class="muke-sort-btn" :class="{ active: mukeSort === 'new' }" @click="mukeSort = 'new'">
-            <i class="fa-regular fa-clock"></i>最新
-          </button>
-          <button class="muke-sort-btn" :class="{ active: mukeSort === 'hot' }" @click="mukeSort = 'hot'">
-            <i class="fa-solid fa-fire"></i>热门
-          </button>
-          <button class="muke-sort-btn" :class="{ active: mukeSort === 'name' }" @click="mukeSort = 'name'">
-            <i class="fa-solid fa-arrow-down-a-z"></i>名称
-          </button>
-        </div>
-      </div>
-      <div class="muke-grid">
-        <div v-for="(c, idx) in filteredList" :key="c.seed" class="muke-card" @click="openAttach(c)">
-          <div class="muke-thumb">
-            <img :src="`https://picsum.photos/seed/${c.seed}/640/360.jpg`" :alt="c.title" loading="lazy">
-            <div class="muke-thumb-overlay"></div>
-            <div class="muke-cat-badge" :style="{ color: catColor[c.cat] || '#1A1A1A' }">{{ catLabel[c.cat] || c.cat }}</div>
-            <div v-if="c.attachments.length" class="muke-attach-badge">
-              <i class="fa-solid fa-paperclip"></i>{{ c.attachments.length }} 附件
+    <!-- 详情弹窗 -->
+    <Teleport to="body">
+      <div v-if="detailModalOpen" class="modal-overlay open" @click.self="closeDetail">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-icon"><i class="fa-solid fa-paperclip"></i></div>
+            <div class="modal-info">
+              <div class="modal-title">{{ selectedVideo?.title }}</div>
+              <div class="modal-sub">
+                {{ videoDetail?.authorName || selectedVideo?.authorName }} ·
+                {{ formatDuration(videoDetail?.duration) }} ·
+                {{ videoAttachments.length }} 份附件
+              </div>
             </div>
-            <div class="muke-duration">{{ c.duration }}</div>
-            <div class="muke-play"><i class="fa-solid fa-play"></i></div>
+            <button class="modal-close" @click="closeDetail"><i class="fa-solid fa-xmark"></i></button>
           </div>
-          <div class="muke-card-body">
-            <div class="muke-card-title">{{ c.title }}</div>
-            <div class="muke-card-meta">
-              <span><i class="fa-regular fa-eye"></i>{{ c.views.toLocaleString() }}</span>
-              <span><i class="fa-regular fa-calendar"></i>{{ c.date }}</span>
-            </div>
-          </div>
-          <div class="muke-card-footer">
-            <div class="muke-instructor">
-              <div class="muke-instructor-avatar">{{ c.author.charAt(0) }}</div>
-              <span class="muke-instructor-name">{{ c.author }}</span>
-            </div>
-            <div v-if="c.progress > 0 && c.progress < 100" class="muke-progress">
-              <div class="muke-progress-bar"><div class="muke-progress-fill" :style="{ width: c.progress + '%' }"></div></div>
-              <span class="muke-progress-text">{{ c.progress }}%</span>
-            </div>
-            <div v-else-if="c.progress === 100" class="muke-progress">
-              <span class="muke-progress-text" style="color:#2D8B55;font-weight:500">已完成</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="filteredList.length === 0" class="muke-empty">
-        <div class="muke-empty-icon"><i class="fa-regular fa-circle-play"></i></div>
-        <div class="muke-empty-title">未找到匹配课程</div>
-        <div class="muke-empty-desc">请尝试调整筛选条件或关键词</div>
-      </div>
-    </section>
 
-    <!-- 附件弹窗 -->
-    <div v-if="attachModalOpen" class="attach-overlay open" @click.self="closeAttach">
-      <div class="attach-modal">
-        <div class="attach-header">
-          <div class="attach-header-icon"><i class="fa-solid fa-paperclip"></i></div>
-          <div class="attach-header-info">
-            <div class="attach-header-title">{{ selectedCourse?.title }}</div>
-            <div class="attach-header-sub">{{ selectedCourse?.author }} · {{ selectedCourse?.duration }} · {{ selectedCourse?.attachments.length }} 份附件</div>
+          <!-- 加载中 -->
+          <div v-if="detailLoading" class="modal-loading">
+            <i class="fa-solid fa-spinner fa-spin"></i>
+            <span>加载中...</span>
           </div>
-          <button class="attach-close" @click="closeAttach"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="attach-body">
-          <div v-for="a in selectedCourse?.attachments" :key="a.name" class="attach-item">
-            <div class="attach-item-icon" :class="aiCls(a.ext)"><i :class="aiFA(a.ext)"></i></div>
-            <div class="attach-item-info">
-              <div class="attach-item-name">{{ a.name }}</div>
-              <div class="attach-item-meta">{{ a.size }}</div>
+
+          <template v-else-if="videoDetail">
+            <!-- 操作栏 -->
+            <div class="detail-actions">
+              <button class="detail-action-btn play-btn" @click="playVideo(selectedVideo!)">
+                <i class="fa-solid fa-play"></i>播放视频
+              </button>
+              <button class="detail-action-btn like-btn" :class="{ liked: videoDetail.hasLiked }" @click="handleLike" :disabled="likingVideoId === videoDetail.videoId">
+                <i :class="likingVideoId === videoDetail.videoId ? 'fa-solid fa-spinner fa-spin' : (videoDetail.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
+                {{ videoDetail.hasLiked ? '已点赞' : '点赞' }} · {{ videoDetail.likeCount }}
+              </button>
             </div>
-            <button class="attach-dl-btn"><i class="fa-solid fa-download"></i>下载</button>
+
+            <!-- 描述 -->
+            <div v-if="videoDetail.description" class="detail-desc">
+              {{ videoDetail.description }}
+            </div>
+
+            <!-- 附件列表 -->
+            <div class="modal-body">
+              <div v-for="a in videoAttachments" :key="a.attachmentId" class="attach-item">
+                <div class="attach-icon" :class="aiCls(a.fileFormat || 'pdf')"><i :class="aiFA(a.fileFormat || 'pdf')"></i></div>
+                <div class="attach-info">
+                  <div class="attach-name">{{ a.fileName }}</div>
+                  <div class="attach-meta">{{ formatFileSize(a.fileSize) }}</div>
+                </div>
+                <button class="attach-dl" @click="downloadAttach(a)"><i class="fa-solid fa-download"></i>下载</button>
+              </div>
+              <div v-if="videoAttachments.length === 0" class="attach-empty">暂无附件</div>
+            </div>
+          </template>
+
+          <div class="modal-footer">
+            <div class="modal-footer-info">发布于 {{ formatDate(videoDetail?.createTime || selectedVideo?.createTime) }}</div>
           </div>
-        </div>
-        <div class="attach-footer">
-          <div class="attach-footer-info">共 {{ selectedCourse?.attachments.length }} 份附件</div>
         </div>
       </div>
-    </div>
+    </Teleport>
+
+    <!-- Toast通知 -->
+    <Teleport to="body">
+      <div class="toast-container">
+        <div v-for="t in toasts" :key="t.id" class="toast">
+          <i class="fa-regular fa-circle-check"></i>
+          <span>{{ t.msg }}</span>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -261,518 +520,741 @@ function resetFilters() {
   animation: fadeUp 0.7s ease both;
 }
 
-.muke-hero {
-  padding: 56px 48px 0;
+.muke-layout {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  min-height: calc(100vh - 56px);
 }
 
-.muke-hero h1 {
-  font-size: 36px;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-  text-align: center;
-  margin-bottom: 8px;
-  color: #1A1A1A;
-}
-
-.muke-hero h1 span {
-  font-family: 'Playfair Display', serif;
-  font-weight: 700;
-  font-style: italic;
-  opacity: 0.12;
-  font-size: 42px;
-}
-
-.muke-hero > p {
-  font-size: 14px;
-  color: #A0A0A0;
-  text-align: center;
-  margin-bottom: 28px;
-}
-
-.muke-search {
-  width: 100%;
-  max-width: 600px;
-  margin-bottom: 20px;
-  position: relative;
-}
-
-.muke-search input {
-  width: 100%;
-  height: 48px;
-  border: 2px solid #ECECEC;
-  border-radius: 16px;
-  padding: 0 16px 0 44px;
-  font-size: 14px;
-  color: #1A1A1A;
+/* ===== 左侧筛选面板 ===== */
+.muke-sidebar {
+  width: 48px;
   background: #FFFFFF;
-  outline: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-right: 1px solid #ECECEC;
+  padding: 12px 8px;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  flex-shrink: 0;
+  transition: width 0.25s ease, padding 0.25s ease;
+  cursor: pointer;
 }
 
-.muke-search input:hover { border-color: #D5D5D5; }
-.muke-search input:focus { border-color: #1A1A1A; }
+.muke-sidebar::-webkit-scrollbar { width: 4px; }
+.muke-sidebar::-webkit-scrollbar-thumb { background: #ECECEC; border-radius: 2px; }
 
-.muke-search i {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 15px;
-  color: #A0A0A0;
+.muke-sidebar.expanded {
+  width: 220px;
+  padding: 24px 18px;
+  cursor: default;
 }
 
-.filter-panel {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 48px;
-}
+.muke-sidebar:not(.expanded) .sidebar-header-text { display: none; }
+.muke-sidebar:not(.expanded) .filter-group { display: none; }
+.muke-sidebar:not(.expanded) .filter-reset { display: none; }
 
-.filter-toggle {
+.sidebar-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1A1A1A;
+  margin-bottom: 20px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 0;
-  cursor: pointer;
-  font-size: 13px;
-  color: #6B6B6B;
 }
 
-.filter-toggle:hover { color: #1A1A1A; }
-
-.filter-toggle i {
-  font-size: 11px;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+.sidebar-header i {
+  font-size: 14px;
+  color: #A0A0A0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: #F5F5F5;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  transition: 0.25s;
 }
 
-.filter-toggle.open i {
-  transform: rotate(180deg);
-  background: #1A1A1A;
-  color: #fff;
-}
+.muke-sidebar:hover .sidebar-header i { background: #ECECEC; color: #1A1A1A; }
+.muke-sidebar.expanded .sidebar-header i { background: #1A1A1A; color: #fff; }
 
-.filter-badge {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 5px;
-  background: #1A1A1A;
+.sidebar-header-text { flex: 1; }
+
+.filter-active-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: #2D8B55;
   color: #fff;
   font-size: 10px;
   font-weight: 600;
-}
-
-.filter-body {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-height 0.4s, opacity 0.3s;
-}
-
-.filter-body.open {
-  max-height: 300px;
-  opacity: 1;
-}
-
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  padding-bottom: 20px;
+  border-radius: 4px;
+  margin-left: 6px;
 }
 
 .filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-bottom: 18px;
 }
 
-.filter-group-label {
+.filter-label {
   font-size: 11px;
   color: #A0A0A0;
+  margin-bottom: 8px;
   font-weight: 500;
   letter-spacing: 0.5px;
-  text-transform: uppercase;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.filter-tag {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #6B6B6B;
+  background: #F5F5F5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.25s;
+  user-select: none;
+}
+
+.filter-tag:hover { background: #ECECEC; }
+.filter-tag.active {
+  background: #1A1A1A;
+  color: #fff;
+  font-weight: 500;
 }
 
 .filter-select {
   width: 100%;
-  height: 38px;
+  height: 32px;
   border: 1px solid #ECECEC;
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 13px;
-  color: #1A1A1A;
-  background: #FFFFFF;
-  outline: none;
-  cursor: pointer;
-}
-
-.filter-select:hover { border-color: #C0C0C0; }
-.filter-select:focus { border-color: #1A1A1A; }
-
-.filter-actions {
-  padding-bottom: 20px;
-}
-
-.filter-btn-reset {
-  height: 38px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid #ECECEC;
-  background: #FFFFFF;
+  border-radius: 6px;
+  padding: 0 10px;
   font-size: 12px;
-  color: #6B6B6B;
+  font-family: inherit;
+  color: #1A1A1A;
+  background: #FAFAFA;
   cursor: pointer;
+  transition: 0.25s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A0A0A0' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 26px;
+}
+
+.filter-select:hover { border-color: #A0A0A0; }
+.filter-select:focus { border-color: #1A1A1A; outline: none; }
+
+.filter-reset {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-size: 12px;
+  color: #A0A0A0;
+  cursor: pointer;
+  transition: 0.25s;
+  padding: 8px 0;
+  margin-top: 8px;
 }
 
-.filter-btn-reset:hover { border-color: #1A1A1A; color: #1A1A1A; }
+.filter-reset:hover { color: #1A1A1A; }
+.filter-reset i { font-size: 10px; }
 
-.muke-grid-area {
-  max-width: 1200px;
-  margin: 20px auto 0;
-  padding: 0 48px 60px;
+/* ===== 右侧主内容 ===== */
+.muke-main {
+  flex: 1;
+  padding: 28px 32px 48px;
+  min-width: 0;
 }
 
-.muke-grid-bar {
+.main-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.main-title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.main-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1A1A1A;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.main-title span {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  font-style: italic;
+  opacity: 0.12;
+  font-size: 26px;
+}
+
+.main-count {
+  font-size: 12px;
+  color: #A0A0A0;
+  font-weight: 300;
+  margin-bottom: 12px;
+}
+
+.main-search {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+}
+
+.main-search input {
+  width: 100%;
+  height: 44px;
+  border: 2px solid #ECECEC;
+  border-radius: 12px;
+  padding: 0 16px 0 40px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #1A1A1A;
+  background: #FFFFFF;
+  transition: 0.25s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.main-search input:hover { border-color: #D5D5D5; }
+.main-search input:focus { border-color: #1A1A1A; outline: none; box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.08); }
+.main-search input::placeholder { color: #A0A0A0; font-weight: 300; }
+
+.main-search i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  color: #A0A0A0;
+  pointer-events: none;
+}
+
+/* 排序栏 */
+.sort-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #F3F3F3;
 }
 
-.muke-grid-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1A1A1A;
-}
+.sort-left { font-size: 12px; color: #A0A0A0; font-weight: 300; }
+.sort-right { display: flex; gap: 4px; }
 
-.muke-grid-count {
-  font-size: 12px;
-  color: #A0A0A0;
-  margin-left: 10px;
-}
-
-.muke-grid-sort {
-  display: flex;
-  gap: 2px;
-}
-
-.muke-sort-btn {
+.sort-btn {
   padding: 5px 12px;
   font-size: 11px;
+  font-weight: 400;
   color: #A0A0A0;
   border: 1px solid transparent;
   border-radius: 6px;
   background: none;
   cursor: pointer;
+  transition: 0.25s;
+  font-family: inherit;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.muke-sort-btn:hover { color: #6B6B6B; background: #F5F5F5; }
-.muke-sort-btn.active { color: #1A1A1A; border-color: #ECECEC; background: #F5F5F5; font-weight: 500; }
-
-.muke-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
+.sort-btn:hover { color: #6B6B6B; background: #F5F5F5; }
+.sort-btn.active {
+  color: #1A1A1A;
+  border-color: #ECECEC;
+  background: #F5F5F5;
+  font-weight: 500;
 }
 
-.muke-card {
+.sort-btn i { font-size: 10px; }
+
+/* 加载中 */
+.muke-loading {
+  padding: 60px 24px;
+  text-align: center;
+  color: #A0A0A0;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.muke-loading i { font-size: 28px; }
+
+/* 课程网格 */
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.course-card {
   background: #FFFFFF;
   border: 1px solid #ECECEC;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
-  transition: 0.3s;
+  transition: 0.25s;
+  animation: toastIn 0.35s ease both;
 }
 
-.muke-card:hover {
+.course-card:hover {
   border-color: #D0D0D0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
-.muke-thumb {
+.course-thumb {
   position: relative;
   width: 100%;
   padding-top: 56.25%;
   overflow: hidden;
 }
 
-.muke-thumb img {
+.course-thumb img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.6s;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.muke-card:hover .muke-thumb img { transform: scale(1.05); }
-
-.muke-thumb-overlay {
+.thumb-placeholder {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.55));
+  background: #F5F5F5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #A0A0A0;
 }
 
-.muke-play {
+.course-card:hover .course-thumb img { transform: scale(1.05); }
+
+.course-thumb-overlay {
   position: absolute;
-  bottom: 14px;
-  right: 14px;
-  width: 40px;
-  height: 40px;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.5));
+}
+
+.course-cat-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(4px);
+  color: #6B6B6B;
+}
+
+.course-views {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.course-views i { font-size: 9px; }
+
+.course-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #1A1A1A;
-  font-size: 14px;
+  font-size: 15px;
   opacity: 0;
-  transform: translateY(8px);
-  transition: 0.3s;
+  transition: 0.25s;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
-.muke-card:hover .muke-play { opacity: 1; transform: translateY(0); }
+.course-card:hover .course-play { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
-.muke-duration {
-  position: absolute;
-  bottom: 14px;
-  left: 14px;
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 500;
-}
+.course-body { padding: 10px 16px 6px; }
 
-.muke-cat-badge {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.muke-attach-badge {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #6B6B6B;
-  font-size: 10px;
-  font-weight: 600;
+.course-title-wrapper {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.muke-card-body { padding: 18px 20px; }
-
-.muke-card-title {
+.course-title {
   font-size: 14px;
   font-weight: 600;
   color: #1A1A1A;
-  line-height: 1.4;
-  margin-bottom: 8px;
+  line-height: 1.35;
+  flex: 1;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.muke-card-meta {
+.course-attach-badge-inline {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 3px;
+  padding: 3px 6px;
+  background: #F5F5F5;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #6B6B6B;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.course-attach-badge-inline i { font-size: 9px; }
+
+.course-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 11px;
   color: #A0A0A0;
 }
 
-.muke-card-meta i { font-size: 10px; margin-right: 3px; }
+.meta-author { display: flex; align-items: center; gap: 5px; }
 
-.muke-card-footer {
-  padding: 0 20px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.muke-instructor { display: flex; align-items: center; gap: 8px; }
-
-.muke-instructor-avatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+.meta-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
   background: #F5F5F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 7px;
   color: #6B6B6B;
   font-weight: 600;
 }
 
-.muke-instructor-name { font-size: 12px; color: #6B6B6B; }
+.meta-date { display: flex; align-items: center; gap: 3px; }
+.meta-date i { font-size: 9px; }
 
-.muke-progress { display: flex; align-items: center; gap: 8px; }
-
-.muke-progress-bar {
-  width: 48px;
-  height: 3px;
-  background: #ECECEC;
-  border-radius: 2px;
-  overflow: hidden;
+.course-footer {
+  padding: 10px 16px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
-.muke-progress-fill { height: 100%; background: #1A1A1A; border-radius: 2px; }
+.course-like {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: 0.25s;
+}
 
-.muke-progress-text { font-size: 10px; color: #A0A0A0; }
+.like-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #ECECEC;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #A0A0A0;
+  transition: 0.25s;
+}
 
-.muke-empty {
-  padding: 72px 24px;
+.like-btn:hover { border-color: #E0E0E0; background: #F5F5F5; }
+.like-btn.active { border-color: #C44536; background: #FCEEEC; color: #C44536; }
+.like-btn i { font-size: 11px; }
+
+.like-count { font-size: 11px; color: #A0A0A0; font-weight: 400; }
+.course-like:hover .like-count { color: #6B6B6B; }
+
+/* 空状态 */
+.empty-state {
+  padding: 48px 24px;
   text-align: center;
 }
 
-.muke-empty-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   background: #F5F5F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 16px;
-  font-size: 22px;
+  margin: 0 auto 12px;
+  font-size: 18px;
   color: #A0A0A0;
 }
 
-.muke-empty-title { font-size: 14px; font-weight: 600; color: #6B6B6B; margin-bottom: 4px; }
-.muke-empty-desc { font-size: 13px; color: #A0A0A0; }
+.empty-title { font-size: 14px; font-weight: 600; color: #6B6B6B; margin-bottom: 4px; }
+.empty-desc { font-size: 13px; color: #A0A0A0; font-weight: 300; }
 
-/* 附件弹窗 */
-.attach-overlay {
+/* 分页 */
+.muke-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 32px;
+}
+
+.page-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ECECEC;
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #6B6B6B;
+  font-size: 13px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+  border-color: #C0C0C0;
+  background: #F5F5F5;
+  color: #1A1A1A;
+}
+
+.page-btn.active {
+  background: #1A1A1A;
+  color: #fff;
+  border-color: #1A1A1A;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-ellipsis {
+  color: #A0A0A0;
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+/* 弹窗 */
+.modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(4px);
-  z-index: 5000;
+  z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.3s;
+  transition: opacity 0.3s ease;
   padding: 24px;
 }
 
-.attach-overlay.open { opacity: 1; pointer-events: auto; }
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
 
-.attach-modal {
+.modal {
   background: #FFFFFF;
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
   width: 100%;
-  max-width: 560px;
+  max-width: 480px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   transform: scale(0.96) translateY(12px);
-  transition: transform 0.35s;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.attach-overlay.open .attach-modal { transform: scale(1) translateY(0); }
+.modal-overlay.open .modal { transform: scale(1) translateY(0); }
 
-.attach-header {
-  padding: 22px 24px 16px;
+.modal-header {
+  padding: 20px 22px 14px;
   border-bottom: 1px solid #F3F3F3;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-.attach-header-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 11px;
+.modal-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   background: #1A1A1A;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
   color: #fff;
 }
 
-.attach-header-info { flex: 1; min-width: 0; }
+.modal-info { flex: 1; min-width: 0; }
 
-.attach-header-title {
+.modal-title {
   font-size: 16px;
   font-weight: 700;
   color: #1A1A1A;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.attach-header-sub { font-size: 12px; color: #A0A0A0; margin-top: 2px; }
+.modal-sub { font-size: 11px; color: #A0A0A0; font-weight: 300; margin-top: 2px; }
 
-.attach-close {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   border: 1px solid #ECECEC;
   background: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: 0.25s;
   color: #A0A0A0;
-  font-size: 14px;
+  font-size: 13px;
 }
 
-.attach-close:hover { border-color: #1A1A1A; color: #1A1A1A; background: #F5F5F5; }
+.modal-close:hover { border-color: #1A1A1A; color: #1A1A1A; background: #F5F5F5; }
 
-.attach-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+.modal-loading {
+  padding: 40px 24px;
+  text-align: center;
+  color: #A0A0A0;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-loading i { font-size: 28px; }
+
+.detail-actions {
+  padding: 16px 22px;
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid #F3F3F3;
+}
+
+.detail-action-btn {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid #ECECEC;
+  background: #FFFFFF;
+  font-size: 13px;
+  color: #6B6B6B;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: 0.25s;
+}
+
+.detail-action-btn:hover { border-color: #1A1A1A; color: #1A1A1A; }
+
+.detail-action-btn.play-btn {
+  background: #C44536;
+  color: #fff;
+  border-color: #C44536;
+}
+
+.detail-action-btn.play-btn:hover { background: #A33A2B; border-color: #A33A2B; }
+
+.detail-action-btn.like-btn.liked {
+  color: #C44536;
+  border-color: #FCEEEC;
+  background: #FCEEEC;
+}
+
+.detail-desc {
+  padding: 16px 22px;
+  font-size: 13px;
+  color: #6B6B6B;
+  line-height: 1.6;
+  border-bottom: 1px solid #F3F3F3;
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  max-height: 300px;
+}
+
+.modal-body::-webkit-scrollbar { width: 4px; }
+.modal-body::-webkit-scrollbar-thumb { background: #ECECEC; border-radius: 2px; }
 
 .attach-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 24px;
+  gap: 12px;
+  padding: 12px 22px;
+  transition: 0.25s;
+  cursor: default;
 }
 
 .attach-item:hover { background: #F5F5F5; }
 
-.attach-item-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
+.attach-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .ai-xlsx { background: #EFF7F2; color: #2D8B55; }
@@ -781,9 +1263,9 @@ function resetFilters() {
 .ai-pptx { background: #FDF3E7; color: #D4841C; }
 .ai-zip { background: #F0EDE8; color: #8B7355; }
 
-.attach-item-info { flex: 1; min-width: 0; }
+.attach-info { flex: 1; min-width: 0; }
 
-.attach-item-name {
+.attach-name {
   font-size: 13px;
   font-weight: 500;
   color: #1A1A1A;
@@ -792,48 +1274,108 @@ function resetFilters() {
   text-overflow: ellipsis;
 }
 
-.attach-item-meta { font-size: 11px; color: #A0A0A0; margin-top: 2px; }
+.attach-meta { font-size: 11px; color: #A0A0A0; font-weight: 300; margin-top: 1px; }
 
-.attach-dl-btn {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 8px;
+.attach-dl {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
   border: 1px solid #ECECEC;
   background: #FFFFFF;
   font-size: 11px;
+  font-weight: 500;
   color: #6B6B6B;
   cursor: pointer;
+  transition: 0.25s;
+  font-family: inherit;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
-.attach-dl-btn:hover { border-color: #1A1A1A; color: #1A1A1A; }
+.attach-dl:hover { border-color: #1A1A1A; color: #1A1A1A; }
+.attach-dl i { font-size: 9px; }
 
-.attach-footer {
-  padding: 12px 24px;
+.attach-empty {
+  padding: 24px;
+  text-align: center;
+  color: #A0A0A0;
+  font-size: 13px;
+}
+
+.modal-footer {
+  padding: 10px 22px;
   border-top: 1px solid #F3F3F3;
+  flex-shrink: 0;
 }
 
-.attach-footer-info { font-size: 11px; color: #A0A0A0; }
+.modal-footer-info { font-size: 11px; color: #A0A0A0; font-weight: 300; }
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  top: 64px;
+  right: 32px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toast {
+  background: #FFFFFF;
+  border: 1px solid #ECECEC;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #1A1A1A;
+  animation: toastIn 0.35s ease both;
+}
+
+.toast i { color: #2D8B55; font-size: 13px; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* 响应式 */
+@media (max-width: 1200px) {
+  .course-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
 @media (max-width: 900px) {
-  .muke-grid { grid-template-columns: repeat(2, 1fr); }
-  .filter-grid { grid-template-columns: repeat(2, 1fr); }
+  .course-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
-  .muke-hero { padding: 40px 20px 20px; }
-  .muke-hero h1 { font-size: 26px; }
-  .muke-grid-area { padding: 0 20px 60px; }
-  .filter-panel { padding: 0 20px; }
-  .muke-grid { grid-template-columns: 1fr; }
-  .filter-grid { grid-template-columns: 1fr; }
-  .attach-modal { max-width: calc(100vw - 32px); }
+  .muke-sidebar {
+    width: 100%;
+    height: auto;
+    position: relative;
+    top: 0;
+    border-right: none;
+    border-bottom: 1px solid #ECECEC;
+    padding: 16px 20px;
+    cursor: default;
+  }
+  .muke-sidebar .sidebar-header-text { display: block !important; }
+  .muke-sidebar .filter-group { display: block !important; }
+  .muke-sidebar .filter-reset { display: flex !important; }
+  .filter-tags { gap: 4px; }
+
+  .muke-main { padding: 20px 16px 32px; }
+  .course-grid { grid-template-columns: 1fr; }
+  .main-search { width: 100%; }
+  .toast-container { right: 16px; }
 }
 </style>
