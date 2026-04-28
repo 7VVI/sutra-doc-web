@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>藏经阁 — 文件管理系统</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@1,400&display=swap" rel="stylesheet">
+<style>
+/* ========== CSS Variables ========== */
+:root {
+  --bg: #FAFAFA;
+  --bg-pure: #FFFFFF;
+  --fg: #1A1A1A;
+  --fg-s: #6B6B6B;
+  --fg-m: #A0A0A0;
+  --border: #ECECEC;
+  --border-l: #F3F3F3;
+  --accent-s: #F5F5F5;
+
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 16px;
+  --r-xl: 20px;
+
+  --sh-xs: 0 1px 2px rgba(0,0,0,.03);
+  --sh-sm: 0 2px 8px rgba(0,0,0,.04);
+  --sh-md: 0 4px 20px rgba(0,0,0,.06);
+  --sh-lg: 0 8px 40px rgba(0,0,0,.08);
+  --sh-xl: 0 20px 60px rgba(0,0,0,.12);
+  --sh-focus: 0 0 0 4px rgba(26,26,26,.08);
+}
+
+/* ========== Reset ========== */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ========== Nav ========== */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+  height: 64px;
+  background: rgba(250,250,250,.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 48px;
+}
+.nav::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px; background: linear-gradient(90deg, transparent, var(--fg-m), transparent);
+  opacity: .3;
+}
+.nav-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; font-weight: 700; color: var(--fg);
+  letter-spacing: .02em;
+}
+.nav-logo svg { width: 32px; height: 32px; }
+.nav-logo .logo-sub {
+  font-size: 11px; font-weight: 300; color: var(--fg-m);
+  margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border);
+}
+
+/* ========== Sub-nav ========== */
+.sub-nav {
+  position: fixed; top: 64px; left: 0; right: 0; z-index: 9999;
+  height: 48px;
+  background: rgba(250,250,250,.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-l);
+  display: flex; align-items: center;
+  padding: 0 48px;
+}
+.sub-nav-dept {
+  font-size: 14px; color: var(--fg-s);
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; padding: 6px 12px;
+  border-radius: var(--r-s);
+  transition: all .2s ease;
+  border: none; background: none;
+}
+.sub-nav-dept:hover { background: var(--accent-s); color: var(--fg); }
+.sub-nav-dept svg { width: 14px; height: 14px; opacity: .5; }
+
+/* ========== Main ========== */
+.main {
+  padding-top: 132px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: 48px;
+  padding-right: 48px;
+  padding-bottom: 80px;
+}
+
+/* ========== Title ========== */
+.page-title {
+  margin-bottom: 32px;
+  animation: fadeUp .7s ease both;
+}
+.page-title h1 {
+  font-family: 'Playfair Display', 'Noto Sans SC', serif;
+  font-style: italic;
+  font-size: 42px; font-weight: 900;
+  color: var(--fg);
+  letter-spacing: -.01em;
+  line-height: 1.15;
+}
+.page-title h1 .zh {
+  font-family: 'Noto Sans SC', sans-serif;
+  font-style: normal;
+}
+.page-title p {
+  font-size: 14px; font-weight: 300;
+  color: var(--fg-m);
+  margin-top: 6px;
+}
+
+/* ========== Search ========== */
+.search-bar {
+  display: flex; align-items: center;
+  margin-bottom: 24px;
+  animation: fadeUp .7s ease .05s both;
+}
+.search-box {
+  flex: 1;
+  display: flex; align-items: center;
+  height: 56px;
+  background: var(--bg-pure);
+  border: 2px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 0 8px 0 20px;
+  transition: all .3s cubic-bezier(.4,0,.2,1);
+  box-shadow: var(--sh-sm);
+}
+.search-box:focus-within {
+  border-color: var(--fg);
+  box-shadow: var(--sh-sm), var(--sh-focus);
+}
+.search-box svg.search-icon { width: 20px; height: 20px; color: var(--fg-m); flex-shrink: 0; }
+.search-box input {
+  flex: 1; height: 100%; border: none; outline: none;
+  font-size: 15px; color: var(--fg);
+  background: transparent;
+  margin: 0 12px;
+  font-family: inherit;
+}
+.search-box input::placeholder { color: var(--fg-m); font-weight: 300; }
+.btn-search {
+  height: 56px; padding: 0 28px;
+  margin-left: 12px;
+  background: var(--fg);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-xl);
+  font-size: 14px; font-weight: 500;
+  cursor: pointer;
+  transition: all .3s cubic-bezier(.4,0,.2,1);
+  font-family: inherit;
+  letter-spacing: .04em;
+}
+.btn-search:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sh-md);
+}
+
+/* ========== Results info ========== */
+.results-info {
+  font-size: 13px;
+  color: var(--fg-m);
+  margin-bottom: 20px;
+  animation: fadeUp .7s ease .15s both;
+}
+.results-info strong { color: var(--fg); font-weight: 700; }
+.results-time { margin-left: 4px; }
+
+/* ========== Results list ========== */
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: fadeUp .7s ease .2s both;
+}
+
+.result-item {
+  background: var(--bg-pure);
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-l);
+  padding: 20px 24px;
+  transition: all .3s cubic-bezier(.4,0,.2,1);
+  position: relative;
+}
+.result-item:first-child {
+  border-radius: var(--r-l) var(--r-l) 0 0;
+}
+.result-item:last-child {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 var(--r-l) var(--r-l);
+}
+.result-item:hover {
+  background: rgba(0,0,0,.008);
+  box-shadow: var(--sh-xs);
+  z-index: 1;
+}
+
+.result-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.result-title {
+  flex: 1;
+}
+.result-title a {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+  transition: color .2s ease;
+}
+.result-title a:hover { color: #333; }
+.result-title .hl {
+  color: #C44536;
+  font-weight: 700;
+  background: rgba(196,69,54,.06);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.result-type {
+  font-size: 12px;
+  color: var(--fg-m);
+  margin-left: 10px;
+  font-weight: 400;
+}
+
+.result-meta {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+.result-meta span {
+  font-size: 12px;
+  color: var(--fg-m);
+}
+.result-dept {
+  padding: 2px 10px;
+  background: var(--accent-s);
+  border-radius: 20px;
+  font-weight: 400;
+  color: var(--fg-s);
+}
+
+.result-snippet {
+  font-size: 13px;
+  color: var(--fg-s);
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+.result-snippet .hl {
+  color: #C44536;
+  font-weight: 600;
+  background: rgba(196,69,54,.06);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ========== File icon ========== */
+.file-icon {
+  width: 36px; height: 36px;
+  border-radius: var(--r-s);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+.file-icon.excel { background: #EFF7F2; color: #2D8B55; }
+.file-icon.word  { background: #EEF3F9; color: #3B6FB5; }
+.file-icon.pdf   { background: #FCEEEC; color: #C44536; }
+.file-icon.ppt   { background: #FDF3E7; color: #D4841C; }
+
+/* ========== Action buttons ========== */
+.btn-action {
+  height: 30px; padding: 0 14px;
+  border-radius: var(--r-s);
+  font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: all .25s cubic-bezier(.4,0,.2,1);
+  font-family: inherit;
+  letter-spacing: .02em;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.btn-action.primary {
+  background: var(--fg);
+  color: #fff;
+  border: 1px solid var(--fg);
+}
+.btn-action.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sh-sm);
+}
+.btn-action.secondary {
+  background: var(--bg-pure);
+  color: var(--fg-s);
+  border: 1px solid var(--border);
+}
+.btn-action.secondary:hover {
+  border-color: #C0C0C0;
+  background: var(--accent-s);
+}
+
+/* ========== Pagination ========== */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 32px;
+  animation: fadeUp .7s ease .25s both;
+}
+.page-btn {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  background: var(--bg-pure);
+  color: var(--fg-s);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .2s ease;
+  font-family: inherit;
+}
+.page-btn:hover {
+  border-color: #C0C0C0;
+  background: var(--accent-s);
+  color: var(--fg);
+}
+.page-btn.active {
+  background: var(--fg);
+  color: #fff;
+  border-color: var(--fg);
+}
+.page-ellipsis {
+  color: var(--fg-m);
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+/* ========== Animations ========== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========== Responsive ========== */
+@media (max-width: 1024px) {
+  .nav, .sub-nav, .main { padding-left: 24px; padding-right: 24px; }
+}
+@media (max-width: 768px) {
+  .main { padding-left: 20px; padding-right: 20px; }
+  .result-meta { flex-wrap: wrap; gap: 8px; }
+  .page-title h1 { font-size: 28px; }
+  .nav { padding: 0 20px; }
+  .nav-logo .logo-sub { display: none; }
+  .search-bar { flex-direction: column; }
+  .btn-search { margin-left: 0; margin-top: 10px; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ========== Nav ========== -->
+<nav class="nav">
+  <div class="nav-logo">
+    <svg viewBox="0 0 32 32" fill="none">
+      <path d="M4 26L16 6L28 26" stroke="#1A1A1A" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M10 18H22" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    藏经阁
+    <span class="logo-sub">文件管理系统</span>
+  </div>
+</nav>
+
+<!-- ========== Sub-nav ========== -->
+<div class="sub-nav">
+  <button class="sub-nav-dept">
+    全部部门
+    <svg viewBox="0 0 14 14" fill="none"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<!-- ========== Main ========== -->
+<main class="main">
+
+  <!-- Title -->
+  <div class="page-title">
+    <h1>Files <span class="zh">藏经阁</span></h1>
+    <p>知识沉淀 · 智慧共享 · 高效协同</p>
+  </div>
+
+  <!-- Search -->
+  <div class="search-bar">
+    <div class="search-box">
+      <svg class="search-icon" viewBox="0 0 20 20" fill="none">
+        <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <input type="text" placeholder="搜索文件名称、关键词、上传者..." value="五金/钢材/生产工艺/培训...">
+    </div>
+    <button class="btn-search">搜索</button>
+  </div>
+
+  <!-- Results info -->
+  <div class="results-info">
+    找到 <strong>7</strong> 个结果
+    <span class="results-time">（耗时 0.03s）</span>
+  </div>
+
+  <!-- Result items -->
+  <div class="results-list">
+
+    <!-- Result 1 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon excel" style="font-size:9px">XLSM</div>
+        <div class="result-title">
+          <a href="#">五金<span class="hl">钢材</span>件生产工艺培训 A0</a>
+          <span class="result-type">.xlsm · 2.4 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">供应链中心工具部品部</span>
+        <span class="result-date">2025-03-18</span>
+        <span class="result-downloads">下载 2 次</span>
+      </div>
+      <div class="result-snippet">
+        …本培训教材针对五金<span class="hl">钢材</span>件的生产工艺流程进行系统讲解，涵盖了从原材料采购、冲压成型、热处理、表面处理到成品检验的全过程。重点介绍了关键工艺参数控制要点和质量管控标准…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 2 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon pdf">PDF</div>
+        <div class="result-title">
+          <a href="#">五金<span class="hl">钢材</span>件生产工艺培训</a>
+          <span class="result-type">.pdf · 5.8 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">供应链中心工具部品部</span>
+        <span class="result-date">2025-03-18</span>
+        <span class="result-downloads">下载 0 次</span>
+      </div>
+      <div class="result-snippet">
+        …培训大纲：第一章 <span class="hl">钢材</span>基础知识（材料牌号、力学性能）；第二章 冲压工艺（模具设计、冲压参数）；第三章 焊接工艺（点焊、缝焊技术）；第四章 表面处理（电镀、阳极氧化）…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 3 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon word">DOCX</div>
+        <div class="result-title">
+          <a href="#">热处理<span class="hl">钢材</span>件材料</a>
+          <span class="result-type">.docx · 1.1 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">供应链中心工具部品部</span>
+        <span class="result-date">2025-03-10</span>
+        <span class="result-downloads">下载 0 次</span>
+      </div>
+      <div class="result-snippet">
+        …本文档详细描述了各类<span class="hl">钢材</span>件的热处理工艺流程，包括淬火、回火、退火、正火等工艺参数的设定。针对不同牌号的<span class="hl">钢材</span>材料（如45#钢、40Cr、20CrMnTi）给出了推荐的热处理温度…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 4 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon pdf">PDF</div>
+        <div class="result-title">
+          <a href="#">2HD-QA-TXD-108 铝<span class="hl">铝件</span>生产工艺附件件报告指导 A0</a>
+          <span class="result-type">.pdf · 3.2 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">中央研究院</span>
+        <span class="result-date">2025-03-25</span>
+        <span class="result-downloads">下载 0 次</span>
+      </div>
+      <div class="result-snippet">
+        …本指导文件针对2HD-QA-TXD-108项目中的铝<span class="hl">铝件</span>生产工艺进行详细说明，包括压铸工艺参数、模具设计要求、表面处理标准以及质量检验流程。附录包含工艺卡模板和检验记录表…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 5 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon pdf">PDF</div>
+        <div class="result-title">
+          <a href="#">2HD-QA-TXD-108 小铝<span class="hl">铝件</span>生产工艺附件件报告指导 A0</a>
+          <span class="result-type">.pdf · 2.8 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">中央研究院</span>
+        <span class="result-date">2025-03-25</span>
+        <span class="result-downloads">下载 0 次</span>
+      </div>
+      <div class="result-snippet">
+        …小铝<span class="hl">铝件</span>（重量 &lt; 500g）的生产工艺与标准件有所不同，本文件重点说明小型铝件在压铸过程中的特殊工艺要求，包括模具温度控制、脱模剂使用、去毛刺方法以及尺寸公差控制…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 6 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon excel">XLS</div>
+        <div class="result-title">
+          <a href="#">2HD-QA-YFZ-019 生产工艺报告指导 A0</a>
+          <span class="result-type">.xls · 860 KB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">中央研究院</span>
+        <span class="result-date">2025-03-24</span>
+        <span class="result-downloads">下载 2 次</span>
+      </div>
+      <div class="result-snippet">
+        …本表格为2HD-QA-YFZ-019项目的生产工艺报告模板，包含产品基本信息、工艺流程图、关键工艺参数记录表、质量检验数据汇总以及异常处理记录。适用于各类<span class="hl">钢材</span>件、铝件的生产工艺记录…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+    <!-- Result 7 -->
+    <div class="result-item">
+      <div class="result-head">
+        <div class="file-icon excel">XLSX</div>
+        <div class="result-title">
+          <a href="#">PC结构<span class="hl">钢材</span>生产工艺制</a>
+          <span class="result-type">.xlsx · 4.1 MB</span>
+        </div>
+      </div>
+      <div class="result-meta">
+        <span class="result-dept">中央研究院</span>
+        <span class="result-date">2025-03-14</span>
+        <span class="result-downloads">下载 5 次</span>
+      </div>
+      <div class="result-snippet">
+        …PC（预制混凝土）结构中使用的<span class="hl">钢材</span>件（如预埋件、连接件、锚固件）的生产工艺标准。文档涵盖了<span class="hl">钢材</span>选材要求、加工工艺流程、防腐处理方法以及产品质量检验标准…
+      </div>
+      <div class="result-actions">
+        <button class="btn-action primary">下载</button>
+        <button class="btn-action secondary">分享</button>
+        <button class="btn-action secondary">预览</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination">
+    <button class="page-btn active">1</button>
+    <button class="page-btn">2</button>
+    <button class="page-btn">3</button>
+    <span class="page-ellipsis">…</span>
+    <button class="page-btn">12</button>
+  </div>
+</main>
+
+<!-- ========== Scripts ========== -->
+<script>
+// Pagination toggle
+document.querySelectorAll('.page-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.page-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

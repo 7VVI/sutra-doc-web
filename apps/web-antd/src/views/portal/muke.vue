@@ -145,9 +145,49 @@ function formatDate(d: string) {
 }
 
 // 播放视频
-function playVideo(video: MediaVideoVo) {
-  const url = getMediaPlayUrl(video.videoId);
-  window.open(url, '_blank');
+const playerOpen = ref(false);
+const playerLoading = ref(false);
+const playerVideo = ref<MediaVideoVo | null>(null);
+const playerSrc = ref('');
+let playerBlobUrl = '';
+
+async function playVideo(video: MediaVideoVo) {
+  playerVideo.value = video;
+  playerOpen.value = true;
+  playerLoading.value = true;
+  playerSrc.value = '';
+  try {
+    const { useAccessStore } = await import('@vben/stores');
+    const { useAppConfig } = await import('@vben/hooks');
+    const token = useAccessStore().accessToken;
+    const { clientId } = useAppConfig(import.meta.env, import.meta.env.PROD);
+    const res = await fetch(getMediaPlayUrl(video.videoId), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ClientID: clientId,
+      },
+    });
+    if (!res.ok) throw new Error(`播放失败: ${res.status}`);
+    const blob = await res.blob();
+    if (playerBlobUrl) URL.revokeObjectURL(playerBlobUrl);
+    playerBlobUrl = URL.createObjectURL(blob);
+    playerSrc.value = playerBlobUrl;
+  } catch (e) {
+    console.error('加载视频失败:', e);
+    showToast('视频加载失败，请稍后重试');
+  } finally {
+    playerLoading.value = false;
+  }
+}
+
+function closePlayer() {
+  playerOpen.value = false;
+  playerVideo.value = null;
+  playerSrc.value = '';
+  if (playerBlobUrl) {
+    URL.revokeObjectURL(playerBlobUrl);
+    playerBlobUrl = '';
+  }
 }
 
 // 详情弹窗
@@ -382,20 +422,19 @@ function setCategoryFilter(tagId: number | null) {
 
         <!-- 课程网格 -->
         <div v-else-if="videos.length > 0" class="course-grid">
-          <div v-for="(v, idx) in videos" :key="v.videoId" class="course-card" @click="openDetail(v)" :style="{ animationDelay: `${idx * 0.04}s` }">
-            <div class="course-thumb">
-              <img v-if="v.thumbnailUrl" :src="v.thumbnailUrl" :alt="v.title" loading="lazy">
+          <div v-for="(v, idx) in videos" :key="v.videoId" class="course-card" :style="{ animationDelay: `${idx * 0.04}s` }">
+            <div class="course-thumb" @click="playVideo(v)">
+              <img v-if="v.thumbnail" :src="v.thumbnail" :alt="v.title" loading="lazy">
               <div v-else class="thumb-placeholder"><i class="fa-solid fa-video"></i></div>
               <div class="course-thumb-overlay"></div>
-              <div class="course-cat-badge">{{ v.authorName || '课程' }}</div>
               <div class="course-views"><i class="fa-regular fa-eye"></i>{{ v.viewCount.toLocaleString() }}</div>
               <div class="course-play"><i class="fa-solid fa-play"></i></div>
             </div>
-            <div class="course-body">
+            <div class="course-body" @click="openDetail(v)">
               <div class="course-title-wrapper">
                 <div class="course-title">{{ v.title }}</div>
-                <div v-if="v.attachmentCount > 0" class="course-attach-badge-inline">
-                  <i class="fa-solid fa-paperclip"></i>{{ v.attachmentCount }}
+                <div class="course-attach-badge-inline">
+                  <i class="fa-solid fa-paperclip"></i>附件({{ v.attachmentCount || 0 }})
                 </div>
               </div>
               <div class="course-meta-row">
@@ -406,7 +445,7 @@ function setCategoryFilter(tagId: number | null) {
                 <div class="meta-date"><i class="fa-regular fa-calendar"></i>{{ formatDate(v.createTime) }}</div>
               </div>
             </div>
-            <div class="course-footer">
+            <div class="course-footer" @click="openDetail(v)">
               <div class="course-like" @click="toggleLikeOnCard(v, $event)">
                 <div class="like-btn" :class="{ active: v.hasLiked }">
                   <i :class="likingVideoId === v.videoId ? 'fa-solid fa-spinner fa-spin' : (v.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
@@ -468,7 +507,7 @@ function setCategoryFilter(tagId: number | null) {
           <template v-else-if="videoDetail">
             <!-- 操作栏 -->
             <div class="detail-actions">
-              <button class="detail-action-btn play-btn" @click="playVideo(selectedVideo!)">
+              <button class="detail-action-btn play-btn" @click="closeDetail(); playVideo(selectedVideo!)">
                 <i class="fa-solid fa-play"></i>播放视频
               </button>
               <button class="detail-action-btn like-btn" :class="{ liked: videoDetail.hasLiked }" @click="handleLike" :disabled="likingVideoId === videoDetail.videoId">
@@ -498,6 +537,31 @@ function setCategoryFilter(tagId: number | null) {
 
           <div class="modal-footer">
             <div class="modal-footer-info">发布于 {{ formatDate(videoDetail?.createTime || selectedVideo?.createTime) }}</div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 播放弹窗 -->
+    <Teleport to="body">
+      <div v-if="playerOpen" class="player-overlay open" @click.self="closePlayer">
+        <div class="player-modal">
+          <div class="player-header">
+            <div class="player-title">{{ playerVideo?.title }}</div>
+            <button class="player-close" @click="closePlayer"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="player-body">
+            <div v-if="playerLoading" class="player-loading">
+              <i class="fa-solid fa-spinner fa-spin"></i>
+              <span>视频加载中...</span>
+            </div>
+            <video
+              v-show="!playerLoading"
+              :src="playerSrc"
+              controls
+              autoplay
+              class="player-video"
+            ></video>
           </div>
         </div>
       </div>
@@ -1380,4 +1444,98 @@ function setCategoryFilter(tagId: number | null) {
   .main-search { width: 100%; }
   .toast-container { right: 16px; }
 }
+
+/* 播放弹窗 */
+.player-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  padding: 24px;
+}
+
+.player-overlay.open { opacity: 1; pointer-events: auto; }
+
+.player-modal {
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.96);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.player-overlay.open .player-modal { transform: scale(1); }
+
+.player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #1A1A1A;
+}
+
+.player-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  margin-right: 12px;
+}
+
+.player-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #A0A0A0;
+  font-size: 14px;
+  transition: 0.25s;
+  flex-shrink: 0;
+}
+
+.player-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+.player-body {
+  width: 100%;
+  background: #000;
+}
+
+.player-video {
+  width: 100%;
+  display: block;
+  max-height: 70vh;
+  outline: none;
+}
+
+.player-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 120px 24px;
+  color: #A0A0A0;
+  font-size: 14px;
+}
+
+.player-loading i { font-size: 28px; }
 </style>

@@ -43,7 +43,7 @@ export interface MediaVideoVo {
   description: string;
   authorId: number;
   authorName: string;
-  thumbnailUrl: string;
+  thumbnail: string;
   fileType: string;
   fileSize: number;
   viewCount: number;
@@ -62,7 +62,7 @@ export interface MediaVideoDetailVo {
   description: string;
   authorId: number;
   authorName: string;
-  thumbnailUrl: string;
+  thumbnail: string;
   fileType: string;
   fileSize: number;
   duration: number;
