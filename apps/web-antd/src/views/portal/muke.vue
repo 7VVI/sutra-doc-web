@@ -1,5 +1,8 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import videojs from 'video.js';
+import type Player from 'video.js/dist/types/player';
+import 'video.js/dist/video-js.css';
 import {
   getMediaVideoPage,
   getMediaTagList,
@@ -137,46 +140,62 @@ function formatDate(d: string) {
   return d.substring(0, 10);
 }
 
-// 播放视频
+// Video.js 播放器
 const playerOpen = ref(false);
 const playerLoading = ref(false);
 const playerVideo = ref<MediaVideoVo | null>(null);
-const playerSrc = ref('');
+const videoAreaRef = ref<HTMLDivElement | null>(null);
 let playerBlobUrl = '';
-const videoRef = ref<HTMLVideoElement | null>(null);
-const playerPlaying = ref(false);
-const playerCurrentTime = ref(0);
-const playerDuration = ref(0);
-const playerVolume = ref(75);
-const playerMuted = ref(false);
-const playerSpeed = ref(1);
-const playerControlsVisible = ref(true);
-let playerControlsTimer: ReturnType<typeof setTimeout> | null = null;
-let playerScrubbing = false;
-const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+let vjsPlayer: Player | null = null;
 
-const playerProgressPct = computed(() => {
-  if (!playerDuration.value) return 0;
-  return (playerCurrentTime.value / playerDuration.value) * 100;
-});
+function initVjsPlayer(src: string, type: string) {
+  // 销毁旧实例
+  if (vjsPlayer) {
+    vjsPlayer.dispose();
+    vjsPlayer = null;
+  }
 
-function formatPlayerTime(sec: number) {
-  if (!sec || !isFinite(sec)) return '0:00';
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  return m + ':' + String(s).padStart(2, '0');
+  const container = videoAreaRef.value;
+  if (!container) return;
+
+  // 创建新的 video 元素
+  const videoEl = document.createElement('video');
+  videoEl.className = 'video-js vjs-big-play-centered';
+  videoEl.setAttribute('playsinline', 'true');
+  container.prepend(videoEl);
+
+  vjsPlayer = videojs(videoEl, {
+    controls: true,
+    autoplay: true,
+    preload: 'auto',
+    fluid: true,
+    aspectRatio: '16:9',
+    responsive: true,
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+    controlBar: {
+      children: [
+        'playToggle',
+        'volumePanel',
+        'currentTimeDisplay',
+        'timeDivider',
+        'durationDisplay',
+        'progressControl',
+        'playbackRateMenuButton',
+        'fullscreenToggle',
+      ],
+    },
+  });
+
+  vjsPlayer.src({ type, src });
 }
 
 async function playVideo(video: MediaVideoVo) {
   playerVideo.value = video;
   playerOpen.value = true;
   playerLoading.value = true;
-  playerSrc.value = '';
-  playerPlaying.value = false;
-  playerCurrentTime.value = 0;
-  playerDuration.value = 0;
+
+  await nextTick();
+
   try {
     const { useAccessStore } = await import('@vben/stores');
     const { useAppConfig } = await import('@vben/hooks');
@@ -192,7 +211,8 @@ async function playVideo(video: MediaVideoVo) {
     const blob = await res.blob();
     if (playerBlobUrl) URL.revokeObjectURL(playerBlobUrl);
     playerBlobUrl = URL.createObjectURL(blob);
-    playerSrc.value = playerBlobUrl;
+
+    initVjsPlayer(playerBlobUrl, blob.type || 'video/mp4');
   } catch (e) {
     console.error('加载视频失败:', e);
     showToast('视频加载失败，请稍后重试');
@@ -202,117 +222,28 @@ async function playVideo(video: MediaVideoVo) {
 }
 
 function closePlayer() {
+  if (vjsPlayer) {
+    vjsPlayer.dispose();
+    vjsPlayer = null;
+  }
   playerOpen.value = false;
   playerVideo.value = null;
-  playerSrc.value = '';
-  playerPlaying.value = false;
   if (playerBlobUrl) {
     URL.revokeObjectURL(playerBlobUrl);
     playerBlobUrl = '';
   }
-  if (playerControlsTimer) clearTimeout(playerControlsTimer);
 }
 
-function onVideoPlay() { playerPlaying.value = true; showPlayerControls(); }
-function onVideoPause() { playerPlaying.value = false; showPlayerControls(); }
-function onTimeUpdate() {
-  if (playerScrubbing) return;
-  playerCurrentTime.value = videoRef.value?.currentTime || 0;
-}
-function onMetaLoaded() {
-  playerDuration.value = videoRef.value?.duration || 0;
-}
-function onVideoEnded() {
-  playerPlaying.value = false;
-  showPlayerControls();
-}
-
-function togglePlay() {
-  if (!videoRef.value) return;
-  if (videoRef.value.paused) videoRef.value.play();
-  else videoRef.value.pause();
-}
-
-function showPlayerControls() {
-  playerControlsVisible.value = true;
-  if (playerControlsTimer) clearTimeout(playerControlsTimer);
-  if (playerPlaying.value) {
-    playerControlsTimer = setTimeout(() => {
-      playerControlsVisible.value = false;
-    }, 3000);
+onBeforeUnmount(() => {
+  if (vjsPlayer) {
+    vjsPlayer.dispose();
+    vjsPlayer = null;
   }
-}
-
-function hidePlayerControlsSoon() {
-  if (playerControlsTimer) clearTimeout(playerControlsTimer);
-  if (playerPlaying.value) {
-    playerControlsTimer = setTimeout(() => {
-      playerControlsVisible.value = false;
-    }, 1000);
+  if (playerBlobUrl) {
+    URL.revokeObjectURL(playerBlobUrl);
+    playerBlobUrl = '';
   }
-}
-
-function startScrub(e: MouseEvent) {
-  e.preventDefault();
-  e.stopPropagation();
-  playerScrubbing = true;
-  seekTo(e);
-  document.addEventListener('mousemove', onScrub);
-  document.addEventListener('mouseup', stopScrub);
-}
-
-function onScrub(e: MouseEvent) {
-  if (!playerScrubbing) return;
-  seekTo(e);
-}
-
-function stopScrub() {
-  playerScrubbing = false;
-  document.removeEventListener('mousemove', onScrub);
-  document.removeEventListener('mouseup', stopScrub);
-}
-
-function seekTo(e: MouseEvent) {
-  const el = (e.target as HTMLElement).closest('.progress-container');
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  if (videoRef.value && playerDuration.value) {
-    videoRef.value.currentTime = pct * playerDuration.value;
-    playerCurrentTime.value = videoRef.value.currentTime;
-  }
-}
-
-function togglePlayerMute() {
-  if (!videoRef.value) return;
-  playerMuted.value = !playerMuted.value;
-  videoRef.value.muted = playerMuted.value;
-}
-
-function setPlayerVolume(e: Event) {
-  const v = parseInt((e.target as HTMLInputElement).value);
-  playerVolume.value = v;
-  if (videoRef.value) videoRef.value.volume = v / 100;
-  if (v === 0) playerMuted.value = true;
-  else playerMuted.value = false;
-}
-
-function cycleSpeed() {
-  const idx = speeds.indexOf(playerSpeed.value);
-  playerSpeed.value = speeds[(idx + 1) % speeds.length];
-  if (videoRef.value) videoRef.value.playbackRate = playerSpeed.value;
-}
-
-function togglePlayerFullscreen() {
-  const wrapper = document.querySelector('.player-wrapper');
-  if (!wrapper) return;
-  if (!document.fullscreenElement) {
-    (wrapper as HTMLElement).requestFullscreen?.();
-    setTimeout(() => showPlayerControls(), 100);
-  } else {
-    document.exitFullscreen?.();
-  }
-}
+});
 
 // 详情弹窗
 const detailModalOpen = ref(false);
@@ -347,6 +278,12 @@ function closeDetail() {
   selectedVideo.value = null;
   videoDetail.value = null;
   videoAttachments.value = [];
+}
+
+function playFromDetail() {
+  const video = selectedVideo.value;
+  closeDetail();
+  if (video) playVideo(video);
 }
 
 // 卡片点赞
@@ -635,7 +572,7 @@ function setCategoryFilter(tagId: number | null) {
 
             <template v-else-if="videoDetail">
               <div class="detail-actions">
-                <button class="btn-play" @click="closeDetail(); playVideo(selectedVideo!)">
+                <button class="btn-play" @click="playFromDetail()">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg>
                   播放视频
                 </button>
@@ -689,88 +626,10 @@ function setCategoryFilter(tagId: number | null) {
               </button>
             </div>
 
-            <div class="video-area"
-              @mousemove="showPlayerControls"
-              @mouseleave="hidePlayerControlsSoon"
-              @click.exact="togglePlay">
-
+            <div ref="videoAreaRef" class="video-area">
               <div v-if="playerLoading" class="center-play">
                 <div class="center-play-btn loading-state">
                   <i class="fa-solid fa-spinner fa-spin" style="color:#fff;font-size:28px"></i>
-                </div>
-              </div>
-
-              <video
-                ref="videoRef"
-                v-show="!playerLoading && playerSrc"
-                :src="playerSrc"
-                autoplay
-                class="player-video"
-                @play="onVideoPlay"
-                @pause="onVideoPause"
-                @timeupdate="onTimeUpdate"
-                @loadedmetadata="onMetaLoaded"
-                @ended="onVideoEnded"
-              ></video>
-
-              <div v-if="!playerPlaying && !playerLoading && playerSrc" class="center-play">
-                <div class="center-play-btn" @click.stop="togglePlay">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
-                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/>
-                  </svg>
-                </div>
-              </div>
-
-              <div class="control-bar" :class="{ visible: playerControlsVisible }" @click.stop>
-                <div class="progress-container" @mousedown="startScrub">
-                  <div class="progress-track">
-                    <div class="progress-filled" :style="{ width: playerProgressPct + '%' }"></div>
-                  </div>
-                </div>
-
-                <div class="controls-row">
-                  <div class="controls-left">
-                    <button class="ctrl-btn play-btn" @click.stop="togglePlay" :title="playerPlaying ? '暂停' : '播放'">
-                      <svg v-if="!playerPlaying" viewBox="0 0 24 24" fill="white" width="22" height="22">
-                        <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/>
-                      </svg>
-                      <svg v-else viewBox="0 0 24 24" fill="white" width="22" height="22">
-                        <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
-                      </svg>
-                    </button>
-
-                    <div class="volume-group" @click.stop>
-                      <button class="ctrl-btn" @click="togglePlayerMute" title="音量">
-                        <svg v-if="playerMuted || playerVolume === 0" viewBox="0 0 24 24" fill="white" width="20" height="20">
-                          <path d="M16.5 12A4.5 4.5 0 0 0 14 8.5v2.09l2.41 2.41A4.47 4.47 0 0 0 16.5 12zM19 12a7 7 0 0 1-1.06 3.61l1.42 1.42A8.94 8.94 0 0 0 21 12a9 9 0 0 0-7-8.77v2.06A7 7 0 0 1 19 12zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a9 9 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" fill="white"/>
-                        </svg>
-                        <svg v-else-if="playerVolume < 50" viewBox="0 0 24 24" fill="white" width="20" height="20">
-                          <path d="M18.5 12A4.5 4.5 0 0 0 16 8.5v7A4.47 4.47 0 0 0 18.5 12zM5 9v6h4l5 5V4L9 9H5z" fill="white"/>
-                        </svg>
-                        <svg v-else viewBox="0 0 24 24" fill="white" width="20" height="20">
-                          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z" fill="white"/>
-                        </svg>
-                      </button>
-                      <div class="volume-slider-wrap">
-                        <input type="range" class="volume-slider" min="0" max="100" :value="playerVolume" @input="setPlayerVolume">
-                      </div>
-                    </div>
-
-                    <div class="time-display">
-                      <span>{{ formatPlayerTime(playerCurrentTime) }}</span>
-                      <span class="separator">/</span>
-                      <span>{{ formatPlayerTime(playerDuration) }}</span>
-                    </div>
-                  </div>
-
-                  <div class="controls-right">
-                    <div class="speed-badge" @click.stop="cycleSpeed">{{ playerSpeed }}x</div>
-                    <button class="ctrl-btn" @click.stop="togglePlayerFullscreen" title="全屏">
-                      <svg viewBox="0 0 24 24" fill="white" width="20" height="20">
-                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                      </svg>
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -824,6 +683,7 @@ function setCategoryFilter(tagId: number | null) {
   line-height: 1;
   text-align: center;
   margin: 0 0 10px;
+  animation: fadeUp 0.7s ease both;
 }
 
 .hero-subtitle {
@@ -833,6 +693,7 @@ function setCategoryFilter(tagId: number | null) {
   text-align: center;
   letter-spacing: 0.3px;
   margin: 0 0 36px;
+  animation: fadeUp 0.7s ease 0.06s both;
 }
 
 .hero-search {
@@ -840,6 +701,7 @@ function setCategoryFilter(tagId: number | null) {
   max-width: 760px;
   margin-bottom: 16px;
   position: relative;
+  animation: fadeUp 0.7s ease 0.1s both;
 }
 
 .hero-search-icon {
@@ -889,6 +751,7 @@ function setCategoryFilter(tagId: number | null) {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  animation: fadeUp 0.7s ease 0.15s both;
 }
 
 .filter-bar-inner {
@@ -1142,6 +1005,17 @@ function setCategoryFilter(tagId: number | null) {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -1655,7 +1529,7 @@ function setCategoryFilter(tagId: number | null) {
   color: #aeaeb2;
 }
 
-/* ===== Video Player ===== */
+/* ===== Video Player (Video.js) ===== */
 .player-overlay {
   position: fixed;
   inset: 0;
@@ -1670,13 +1544,13 @@ function setCategoryFilter(tagId: number | null) {
 }
 
 .player-wrapper {
-  width: 960px;
-  max-width: 96vw;
   position: relative;
   border-radius: 20px;
   overflow: hidden;
   background: #000;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 32px 80px -12px rgba(0,0,0,0.7);
+  max-width: 96vw;
+  width: max-content;
 }
 
 .player-wrapper::before {
@@ -1707,17 +1581,10 @@ function setCategoryFilter(tagId: number | null) {
 
 .video-area {
   position: relative;
-  width: 100%;
+  width: 960px;
+  max-width: 96vw;
   background: #000;
-  cursor: pointer;
   overflow: hidden;
-}
-
-.player-video {
-  width: 100%;
-  display: block;
-  outline: none;
-  max-height: 75vh;
 }
 
 .center-play {
@@ -1740,13 +1607,7 @@ function setCategoryFilter(tagId: number | null) {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease;
-}
-
-.center-play-btn:hover {
-  transform: scale(1.08);
-  background: rgba(255,255,255,0.18);
+  cursor: default;
 }
 
 .center-play-btn.loading-state {
@@ -1754,8 +1615,6 @@ function setCategoryFilter(tagId: number | null) {
   background: rgba(255,255,255,0.06);
   border-color: rgba(255,255,255,0.08);
 }
-
-.center-play-btn.loading-state:hover { transform: none; }
 
 .player-title-bar {
   display: flex;
@@ -1796,170 +1655,6 @@ function setCategoryFilter(tagId: number | null) {
   background: rgba(255,255,255,0.12);
   color: #fff;
 }
-
-.control-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
-  padding: 32px 16px 14px;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  pointer-events: none;
-}
-
-.control-bar.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
-
-.progress-container {
-  width: 100%;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  position: relative;
-  margin-bottom: 6px;
-}
-
-.progress-track {
-  width: 100%;
-  height: 3px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 2px;
-  position: relative;
-  transition: height 0.15s ease;
-}
-
-.progress-container:hover .progress-track { height: 5px; }
-
-.progress-filled {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  background: #fff;
-  border-radius: 2px;
-  transition: width 0.1s linear;
-}
-
-.controls-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.controls-left, .controls-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ctrl-btn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: #fff;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.ctrl-btn:hover { background: rgba(255,255,255,0.1); }
-.ctrl-btn.play-btn { width: 40px; height: 40px; }
-
-.time-display {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255,255,255,0.8);
-  white-space: nowrap;
-  margin: 0 6px;
-  user-select: none;
-}
-
-.time-display .separator { color: rgba(255,255,255,0.35); margin: 0 2px; }
-
-.volume-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.volume-slider-wrap {
-  width: 0;
-  overflow: hidden;
-  transition: width 0.2s ease;
-  display: flex;
-  align-items: center;
-}
-
-.volume-group:hover .volume-slider-wrap { width: 72px; }
-
-.volume-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 68px;
-  height: 3px;
-  background: rgba(255,255,255,0.2);
-  border-radius: 2px;
-  outline: none;
-  margin: 0 2px;
-  cursor: pointer;
-}
-
-.volume-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  background: #fff;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.speed-badge {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(255,255,255,0.08);
-  color: #fff;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s ease;
-}
-
-.speed-badge:hover { background: rgba(255,255,255,0.16); }
-
-/* Fullscreen */
-.player-wrapper:fullscreen {
-  width: 100%;
-  max-width: 100%;
-  height: 100%;
-  border-radius: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.player-wrapper:fullscreen .player-title-bar { flex-shrink: 0; }
-
-.player-wrapper:fullscreen .video-area { flex: 1; min-height: 0; }
-
-.player-wrapper:fullscreen .player-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  max-height: 100%;
-}
-
-.player-wrapper:fullscreen .control-bar { z-index: 25; }
 
 /* ===== Transitions ===== */
 .modal-fade-enter-active { transition: opacity 0.35s ease; }
@@ -2063,8 +1758,84 @@ function setCategoryFilter(tagId: number | null) {
   .toast-container { right: 16px; top: 64px; }
 
   .player-wrapper { border-radius: 14px; }
-  .control-bar { padding: 24px 10px 10px; }
-  .time-display { font-size: 12px; }
-  .center-play-btn { width: 64px; height: 64px; }
+  .video-area { width: 100% !important; }
+}
+</style>
+
+<!-- Video.js 样式覆盖（不使用 scoped，否则无法作用于动态创建的 DOM） -->
+<style>
+.player-wrapper .video-js {
+  font-family: inherit;
+  width: 100%;
+}
+
+.player-wrapper .video-js .vjs-big-play-button {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255,255,255,0.18);
+  line-height: 80px;
+  font-size: 40px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transition: all 0.2s ease;
+}
+
+.player-wrapper .video-js .vjs-big-play-button:hover {
+  background: rgba(255,255,255,0.18);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.player-wrapper .video-js .vjs-big-play-button .vjs-icon-placeholder::before {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-wrapper .video-js .vjs-control-bar {
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+  height: 44px;
+  padding: 0 8px;
+}
+
+.player-wrapper .video-js .vjs-play-progress,
+.player-wrapper .video-js .vjs-volume-level {
+  background: #fff;
+}
+
+.player-wrapper .video-js .vjs-slider {
+  background: rgba(255,255,255,0.2);
+}
+
+.player-wrapper .video-js .vjs-load-progress div {
+  background: rgba(255,255,255,0.1);
+}
+
+.player-wrapper .video-js .vjs-time-control {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: rgba(255,255,255,0.8);
+  line-height: 44px;
+  padding: 0 4px;
+}
+
+/* Video.js 自带全屏模式样式 */
+.video-js.vjs-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.video-js.vjs-fullscreen video {
+  object-fit: contain;
+}
+
+@media (max-width: 768px) {
+  .player-wrapper .video-js .vjs-big-play-button { width: 64px; height: 64px; line-height: 64px; font-size: 32px; }
+  .player-wrapper .video-js .vjs-control-bar { height: 38px; }
+  .player-wrapper .video-js .vjs-time-control { font-size: 12px; line-height: 38px; }
 }
 </style>

@@ -30,6 +30,7 @@ const uploading = ref(false);
 // 视频信息
 const videoTitle = ref('');
 const videoDescription = ref('');
+const videoAuthorName = ref('');
 const selectedCategories = ref<number[]>([]);
 const selectedDirections = ref<number[]>([]);
 
@@ -134,6 +135,7 @@ const [BasicModal, modalApi] = useVbenModal({
     thumbnailPreview.value = '';
     videoTitle.value = '';
     videoDescription.value = '';
+    videoAuthorName.value = '';
     selectedCategories.value = [];
     selectedDirections.value = [];
   },
@@ -161,6 +163,7 @@ async function handleConfirm() {
       title: videoTitle.value,
       description: videoDescription.value,
       authorId: userId,
+      authorName: videoAuthorName.value || undefined,
       authType: 0,
       categoryIds: selectedCategories.value,
       directionIds: selectedDirections.value,
@@ -187,6 +190,7 @@ async function handleClosed() {
   thumbnailPreview.value = '';
   videoTitle.value = '';
   videoDescription.value = '';
+  videoAuthorName.value = '';
   selectedCategories.value = [];
   selectedDirections.value = [];
 }
@@ -198,51 +202,72 @@ async function handleClosed() {
       <!-- 视频标题 -->
       <div class="form-item">
         <label class="form-label">视频标题<span class="required">*</span></label>
-        <input
-          type="text"
-          class="form-input"
-          v-model="videoTitle"
-          placeholder="请输入视频标题"
-        />
+        <div class="form-input-wrap">
+          <input
+            type="text"
+            class="form-input"
+            v-model="videoTitle"
+            placeholder="请输入视频标题"
+          />
+        </div>
       </div>
 
       <!-- 视频描述 -->
-      <div class="form-item">
+      <div class="form-item textarea-item">
         <label class="form-label">视频描述</label>
-        <textarea
-          class="form-textarea"
-          v-model="videoDescription"
-          placeholder="请输入视频描述"
-          rows="3"
-        ></textarea>
+        <div class="form-input-wrap">
+          <textarea
+            class="form-textarea"
+            v-model="videoDescription"
+            placeholder="请输入视频描述"
+            rows="3"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- 作者名称 -->
+      <div class="form-item">
+        <label class="form-label">作者名称</label>
+        <div class="form-input-wrap">
+          <input
+            type="text"
+            class="form-input"
+            v-model="videoAuthorName"
+            placeholder="请输入作者名称"
+          />
+        </div>
       </div>
 
       <!-- 分类选择 -->
       <div class="form-item">
         <label class="form-label">分类标签</label>
-        <Select
-          v-model:value="selectedCategories"
-          mode="multiple"
-          placeholder="请选择分类标签"
-          :options="categoryOptions"
-          :loading="loadingTags"
-          style="width: 100%"
-          allow-clear
-        />
+        <div class="form-input-wrap">
+          <Select
+            v-model:value="selectedCategories"
+            mode="multiple"
+            placeholder="请选择分类标签"
+            :options="categoryOptions"
+            :loading="loadingTags"
+            style="width: 100%"
+            allow-clear
+          />
+        </div>
       </div>
 
       <!-- 方向选择 -->
       <div class="form-item">
         <label class="form-label">方向标签</label>
-        <Select
-          v-model:value="selectedDirections"
-          mode="multiple"
-          placeholder="请选择方向标签"
-          :options="directionOptions"
-          :loading="loadingTags"
-          style="width: 100%"
-          allow-clear
-        />
+        <div class="form-input-wrap">
+          <Select
+            v-model:value="selectedDirections"
+            mode="multiple"
+            placeholder="请选择方向标签"
+            :options="directionOptions"
+            :loading="loadingTags"
+            style="width: 100%"
+            allow-clear
+          />
+        </div>
       </div>
 
       <!-- 封面上传 -->
@@ -313,12 +338,17 @@ async function handleClosed() {
 }
 
 .form-item {
-  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 18px;
 }
 
 .form-label {
-  display: block;
-  margin-bottom: 8px;
+  flex-shrink: 0;
+  width: 80px;
+  text-align: right;
+  padding-right: 12px;
+  line-height: 40px;
   font-size: 14px;
   font-weight: 500;
   color: #1A1A1A;
@@ -327,6 +357,16 @@ async function handleClosed() {
 .form-label .required {
   color: #FF4D4F;
   margin-left: 2px;
+}
+
+.form-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.textarea-item .form-label {
+  line-height: 32px;
+  padding-top: 4px;
 }
 
 .form-input {
@@ -363,13 +403,10 @@ async function handleClosed() {
 .upload-item {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
 }
 
 .upload-item .form-label {
-  margin-top: 8px;
-  white-space: nowrap;
-  min-width: 70px;
+  padding-top: 4px;
 }
 
 .upload-right {

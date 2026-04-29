@@ -23,9 +23,9 @@ const title = computed(() => {
 });
 
 const [BasicForm, formApi] = useVbenForm({
-  layout: 'vertical',
+  layout: 'horizontal',
   commonConfig: {
-    labelWidth: 100,
+    labelWidth: 80,
   },
   schema: modalSchema(),
   showDefaultActions: false,
@@ -49,15 +49,20 @@ const [BasicModal, modalApi] = useVbenModal({
     }
     modalApi.modalLoading(true);
 
-    // 从传入的数据获取记录（无详情接口）
-    const data = modalApi.getData() as { record?: MediaTagVo };
+    const data = modalApi.getData() as { record?: MediaTagVo; parentId?: number };
     isUpdate.value = !!data?.record?.tagId;
     if (isUpdate.value && data?.record) {
       await formApi.setValues({
         tagId: data.record.tagId,
+        parentId: data.record.parentId || 0,
         tagName: data.record.tagName,
         sortOrder: data.record.sortOrder,
         status: data.record.status,
+      });
+    } else {
+      // 新增时设置 parentId（新增子分类）
+      await formApi.setValues({
+        parentId: data?.parentId || 0,
       });
     }
     await markInitialized();

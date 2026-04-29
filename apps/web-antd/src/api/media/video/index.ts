@@ -41,6 +41,7 @@ export function videoUpload(
     title: string;
     description?: string;
     authorId: number;
+    authorName?: string;
     authType?: number;
     categoryIds?: number[];
     directionIds?: number[];
@@ -56,6 +57,9 @@ export function videoUpload(
     formData.append('description', bo.description);
   }
   formData.append('authorId', String(bo.authorId));
+  if (bo.authorName) {
+    formData.append('authorName', bo.authorName);
+  }
   if (bo.authType !== undefined) {
     formData.append('authType', String(bo.authType));
   }
@@ -81,39 +85,9 @@ export function videoUpload(
 
 /**
  * 编辑视频信息
- * @param data 视频信息
- * @param thumbnail 缩略图文件(可选)
+ * @param data 视频信息（thumbnail传URL）
  */
-export function videoUpdate(
-  data: MediaVideoBo,
-  thumbnail?: File,
-) {
-  if (thumbnail) {
-    const formData = new FormData();
-    formData.append('title', data.title || '');
-    if (data.description) {
-      formData.append('description', data.description);
-    }
-    if (data.authType !== undefined) {
-      formData.append('authType', String(data.authType));
-    }
-    if (data.categoryIds && data.categoryIds.length > 0) {
-      data.categoryIds.forEach((id) => {
-        formData.append('categoryIds', String(id));
-      });
-    }
-    if (data.directionIds && data.directionIds.length > 0) {
-      data.directionIds.forEach((id) => {
-        formData.append('directionIds', String(id));
-      });
-    }
-    formData.append('thumbnail', thumbnail);
-    return alovaInstance.putWithMsg<void>(`${Api.root}/${data.videoId}`, formData, {
-      headers: {
-        'Content-Type': ContentTypeEnum.FORM_DATA,
-      },
-    });
-  }
+export function videoUpdate(data: MediaVideoBo) {
   return alovaInstance.putWithMsg<void>(`${Api.root}/${data.videoId}`, data);
 }
 

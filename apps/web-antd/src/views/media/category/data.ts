@@ -3,8 +3,8 @@ import type { VxeGridProps } from '#/adapter/vxe-table';
 
 /** 状态选项 */
 const statusOptions = [
-  { label: '正常', value: 0 },
-  { label: '停用', value: 1 },
+  { label: '停用', value: 0 },
+  { label: '正常', value: 1 },
 ];
 
 /** 搜索表单配置 */
@@ -49,7 +49,7 @@ export const columns: VxeGridProps['columns'] = [
     width: 100,
     slots: {
       default: ({ row }) => {
-        const isEnable = row.status === 0;
+        const isEnable = row.status === 1;
         return isEnable ? '正常' : '停用';
       },
     },
@@ -66,7 +66,7 @@ export const columns: VxeGridProps['columns'] = [
     slots: { default: 'action' },
     title: '操作',
     resizable: false,
-    width: 120,
+    width: 'auto',
   },
 ];
 
@@ -82,12 +82,22 @@ export const modalSchema: FormSchemaGetter = () => [
     label: 'tagId',
   },
   {
+    component: 'InputNumber',
+    dependencies: {
+      show: () => false,
+      triggerFields: [''],
+    },
+    fieldName: 'parentId',
+    label: 'parentId',
+    defaultValue: 0,
+  },
+  {
     component: 'Input',
     fieldName: 'tagName',
     label: '名称',
     rules: 'required',
     componentProps: {
-      placeholder: '请输入方向名称',
+      placeholder: '请输入分类名称',
     },
   },
   {
@@ -105,7 +115,7 @@ export const modalSchema: FormSchemaGetter = () => [
     component: 'Select',
     fieldName: 'status',
     label: '是否启用',
-    defaultValue: 0,
+    defaultValue: 1,
     componentProps: {
       options: statusOptions,
     },

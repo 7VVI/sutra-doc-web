@@ -2,24 +2,19 @@
 import { computed, ref } from 'vue';
 
 import { useVbenModal } from '@vben/common-ui';
-import { $t } from '@vben/locales';
-import { cloneDeep } from '@vben/utils';
 
 import { useVbenForm } from '#/adapter/form';
-import {
-  directionAdd,
-  directionUpdate,
-} from '#/api/media/direction';
-import type { MediaTagVo } from '#/api/media/direction/model';
+import { docDetail, docUpdate } from '#/api/kb/doc';
+import type { KbDocVo } from '#/api/kb/doc/model';
 import { defaultFormValueGetter, useBeforeCloseDiff } from '#/utils/popup';
 
-import { modalSchema } from './data';
+import { editModalSchema } from './data';
 
 const emit = defineEmits<{ reload: [] }>();
 
 const isUpdate = ref(false);
 const title = computed(() => {
-  return isUpdate.value ? $t('pages.common.edit') : $t('pages.common.add');
+  return isUpdate.value ? '编辑文档' : '新增文档';
 });
 
 const [BasicForm, formApi] = useVbenForm({
@@ -27,7 +22,7 @@ const [BasicForm, formApi] = useVbenForm({
   commonConfig: {
     labelWidth: 80,
   },
-  schema: modalSchema(),
+  schema: editModalSchema(),
   showDefaultActions: false,
 });
 
@@ -44,21 +39,32 @@ const [BasicModal, modalApi] = useVbenModal({
   onClosed: handleClosed,
   onConfirm: handleConfirm,
   onOpenChange: async (isOpen) => {
-    if (!isOpen) {
-      return null;
-    }
+    if (!isOpen) return null;
     modalApi.modalLoading(true);
 
-    // 从传入的数据获取记录（无详情接口）
-    const data = modalApi.getData() as { record?: MediaTagVo };
-    isUpdate.value = !!data?.record?.tagId;
+    const data = modalApi.getData() as { record?: KbDocVo };
+    isUpdate.value = !!data?.record?.docId;
     if (isUpdate.value && data?.record) {
-      await formApi.setValues({
-        tagId: data.record.tagId,
-        tagName: data.record.tagName,
-        sortOrder: data.record.sortOrder,
-        status: data.record.status,
-      });
+      try {
+        const detail = await docDetail(data.record.docId);
+        const doc = (detail as any)?.data || detail;
+        await formApi.setValues({
+          docId: doc.docId,
+          docTitle: doc.docTitle,
+          category: doc.category,
+          keywords: doc.keywords,
+          remark: doc.remark,
+        });
+      } catch (e) {
+        console.error('获取文档详情失败:', e);
+        await formApi.setValues({
+          docId: data.record.docId,
+          docTitle: data.record.docTitle,
+          category: data.record.category,
+          keywords: data.record.keywords,
+          remark: data.record.remark,
+        });
+      }
     }
     await markInitialized();
 
@@ -70,15 +76,10 @@ async function handleConfirm() {
   try {
     modalApi.lock(true);
     const { valid } = await formApi.validate();
-    if (!valid) {
-      return;
-    }
+    if (!valid) return;
+    const { cloneDeep } = await import('@vben/utils');
     const data = cloneDeep(await formApi.getValues());
-    if (isUpdate.value) {
-      await directionUpdate(data);
-    } else {
-      await directionAdd(data);
-    }
+    await docUpdate(data);
     resetInitialized();
     emit('reload');
     modalApi.close();

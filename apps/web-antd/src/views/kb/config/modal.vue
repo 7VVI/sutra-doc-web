@@ -6,11 +6,8 @@ import { $t } from '@vben/locales';
 import { cloneDeep } from '@vben/utils';
 
 import { useVbenForm } from '#/adapter/form';
-import {
-  directionAdd,
-  directionUpdate,
-} from '#/api/media/direction';
-import type { MediaTagVo } from '#/api/media/direction/model';
+import { configDetail, configAdd, configUpdate } from '#/api/kb/config';
+import type { KbSysConfigVo } from '#/api/kb/config/model';
 import { defaultFormValueGetter, useBeforeCloseDiff } from '#/utils/popup';
 
 import { modalSchema } from './data';
@@ -31,12 +28,11 @@ const [BasicForm, formApi] = useVbenForm({
   showDefaultActions: false,
 });
 
-const { onBeforeClose, markInitialized, resetInitialized } = useBeforeCloseDiff(
-  {
+const { onBeforeClose, markInitialized, resetInitialized } =
+  useBeforeCloseDiff({
     initializedGetter: defaultFormValueGetter(formApi),
     currentGetter: defaultFormValueGetter(formApi),
-  },
-);
+  });
 
 const [BasicModal, modalApi] = useVbenModal({
   fullscreenButton: false,
@@ -44,21 +40,40 @@ const [BasicModal, modalApi] = useVbenModal({
   onClosed: handleClosed,
   onConfirm: handleConfirm,
   onOpenChange: async (isOpen) => {
-    if (!isOpen) {
-      return null;
-    }
+    if (!isOpen) return null;
     modalApi.modalLoading(true);
 
-    // 从传入的数据获取记录（无详情接口）
-    const data = modalApi.getData() as { record?: MediaTagVo };
-    isUpdate.value = !!data?.record?.tagId;
+    const data = modalApi.getData() as { record?: KbSysConfigVo };
+    isUpdate.value = !!data?.record?.configId;
+
     if (isUpdate.value && data?.record) {
-      await formApi.setValues({
-        tagId: data.record.tagId,
-        tagName: data.record.tagName,
-        sortOrder: data.record.sortOrder,
-        status: data.record.status,
-      });
+      try {
+        const detail = await configDetail(data.record.configId);
+        const doc = (detail as any)?.data || detail;
+        await formApi.setValues({
+          configId: doc.configId,
+          itemCode: doc.itemCode,
+          itemName: doc.itemName,
+          itemValue: doc.itemValue,
+          valueType: doc.valueType,
+          itemGroup: doc.itemGroup,
+          sortOrder: doc.sortOrder,
+          status: doc.status,
+          remark: doc.remark,
+        });
+      } catch {
+        await formApi.setValues({
+          configId: data.record.configId,
+          itemCode: data.record.itemCode,
+          itemName: data.record.itemName,
+          itemValue: data.record.itemValue,
+          valueType: data.record.valueType,
+          itemGroup: data.record.itemGroup,
+          sortOrder: data.record.sortOrder,
+          status: data.record.status,
+          remark: data.record.remark,
+        });
+      }
     }
     await markInitialized();
 
@@ -70,14 +85,12 @@ async function handleConfirm() {
   try {
     modalApi.lock(true);
     const { valid } = await formApi.validate();
-    if (!valid) {
-      return;
-    }
+    if (!valid) return;
     const data = cloneDeep(await formApi.getValues());
     if (isUpdate.value) {
-      await directionUpdate(data);
+      await configUpdate(data);
     } else {
-      await directionAdd(data);
+      await configAdd(data);
     }
     resetInitialized();
     emit('reload');

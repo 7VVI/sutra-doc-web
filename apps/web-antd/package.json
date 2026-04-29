@@ -59,6 +59,7 @@
     "tinymce": "catalog:",
     "unplugin-vue-components": "catalog:",
     "version-polling": "catalog:",
+    "video.js": "^8.23.7",
     "vue": "catalog:",
     "vue-router": "catalog:"
   },

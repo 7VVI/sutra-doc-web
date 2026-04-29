@@ -7,14 +7,31 @@ const statusOptions = [
   { label: '禁用', value: 0 },
 ];
 
+/** 值类型选项 */
+const valueTypeOptions = [
+  { label: '字符串', value: 'string' },
+  { label: '数字', value: 'number' },
+  { label: '布尔', value: 'boolean' },
+  { label: 'JSON', value: 'json' },
+  { label: '数组', value: 'array' },
+];
+
 /** 搜索表单配置 */
 export const querySchema: FormSchemaGetter = () => [
   {
     component: 'Input',
-    fieldName: 'folderName',
-    label: '目录名称',
+    fieldName: 'itemName',
+    label: '配置名称',
     componentProps: {
-      placeholder: '请输入目录名称',
+      placeholder: '请输入配置名称',
+    },
+  },
+  {
+    component: 'Input',
+    fieldName: 'itemCode',
+    label: '配置编码',
+    componentProps: {
+      placeholder: '请输入配置编码',
     },
   },
   {
@@ -33,31 +50,35 @@ export const querySchema: FormSchemaGetter = () => [
 export const columns: VxeGridProps['columns'] = [
   { type: 'seq', title: '序号', width: 60 },
   {
-    title: '目录名称',
-    field: 'folderName',
-    minWidth: 180,
-    treeNode: true,
+    title: '配置项名称',
+    field: 'itemName',
+    minWidth: 150,
   },
   {
-    title: '目录编码',
-    field: 'folderCode',
-    width: 130,
+    title: '配置项编码',
+    field: 'itemCode',
+    width: 150,
   },
   {
-    title: '层级',
-    field: 'folderLevel',
-    width: 70,
+    title: '配置项值',
+    field: 'itemValue',
+    minWidth: 150,
+  },
+  {
+    title: '值类型',
+    field: 'valueType',
+    width: 90,
+  },
+  {
+    title: '分组',
+    field: 'itemGroup',
+    width: 100,
   },
   {
     title: '排序',
     field: 'sortOrder',
     width: 70,
     sortable: true,
-  },
-  {
-    title: '文档数',
-    field: 'docCount',
-    width: 80,
   },
   {
     title: '状态',
@@ -93,33 +114,50 @@ export const modalSchema: FormSchemaGetter = () => [
       show: () => false,
       triggerFields: [''],
     },
-    fieldName: 'folderId',
-    label: 'folderId',
+    fieldName: 'configId',
+    label: 'configId',
   },
   {
     component: 'Input',
-    fieldName: 'parentId',
-    label: 'parentId',
-    dependencies: {
-      show: () => false,
-      triggerFields: [''],
-    },
-  },
-  {
-    component: 'Input',
-    fieldName: 'folderName',
-    label: '目录名称',
+    fieldName: 'itemCode',
+    label: '配置编码',
     rules: 'required',
     componentProps: {
-      placeholder: '请输入目录名称',
+      placeholder: '请输入配置项编码',
     },
   },
   {
     component: 'Input',
-    fieldName: 'folderCode',
-    label: '目录编码',
+    fieldName: 'itemName',
+    label: '配置名称',
+    rules: 'required',
     componentProps: {
-      placeholder: '请输入目录编码',
+      placeholder: '请输入配置项名称',
+    },
+  },
+  {
+    component: 'Input',
+    fieldName: 'itemValue',
+    label: '配置值',
+    componentProps: {
+      placeholder: '请输入配置项值',
+    },
+  },
+  {
+    component: 'Select',
+    fieldName: 'valueType',
+    label: '值类型',
+    defaultValue: 'string',
+    componentProps: {
+      options: valueTypeOptions,
+    },
+  },
+  {
+    component: 'Input',
+    fieldName: 'itemGroup',
+    label: '配置分组',
+    componentProps: {
+      placeholder: '请输入配置分组',
     },
   },
   {
@@ -144,11 +182,12 @@ export const modalSchema: FormSchemaGetter = () => [
     },
   },
   {
-    component: 'Input',
-    fieldName: 'description',
-    label: '描述',
+    component: 'Textarea',
+    fieldName: 'remark',
+    label: '备注',
     componentProps: {
-      placeholder: '请输入目录描述',
+      placeholder: '请输入备注说明',
+      rows: 3,
     },
   },
 ];

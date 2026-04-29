@@ -15,6 +15,8 @@ setupVbenVxeTable({
         align: 'center',
         // https://vxetable.cn/#/component/table/base/border
         border: 'inner',
+        // 列宽自撑开，确保表格始终填满容器宽度
+        fit: true,
         minHeight: 180,
         formConfig: {
           // 全局禁用vxe-table的表单配置，使用formOptions
@@ -48,9 +50,9 @@ setupVbenVxeTable({
           // 可拖拽列宽
           resizable: true,
         },
-        // 拖拽列宽时不改变表格整体宽度，只在列之间重新分配
+        // 拖拽列宽时保持表格整体宽度不变，相邻列自动补偿
         resizableConfig: {
-          syncResize: false,
+          syncResize: true,
         },
         // 右上角工具栏
         toolbarConfig: {

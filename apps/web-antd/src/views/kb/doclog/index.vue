@@ -52,6 +52,10 @@ const gridOptions: VxeGridProps = {
   height: 'auto',
   keepSource: true,
   pagerConfig: {},
+  resizableConfig: {
+    // 拖拽列宽时保持表格整体宽度不变，相邻列自动补偿
+    syncResize: true,
+  },
   proxyConfig: {
     ajax: {
       query: async ({ page, sorts }, formValues = {}) => {

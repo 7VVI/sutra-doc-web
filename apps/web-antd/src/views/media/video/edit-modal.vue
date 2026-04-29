@@ -9,6 +9,7 @@ import { message, Upload, Select } from 'antdv-next';
 import { videoUpdate, videoDetail } from '#/api/media/video';
 import { categoryList, directionList } from '#/api/media/direction';
 import type { MediaVideoVo } from '#/api/media/video/model';
+import { uploadApi } from '#/api/core/upload';
 
 const emit = defineEmits<{ reload: [] }>();
 
@@ -22,6 +23,7 @@ const loadingTags = ref(false);
 // 视频信息
 const videoTitle = ref('');
 const videoDescription = ref('');
+const videoAuthorName = ref('');
 const selectedCategories = ref<number[]>([]);
 const selectedDirections = ref<number[]>([]);
 
@@ -102,6 +104,7 @@ const [BasicModal, modalApi] = useVbenModal({
     if (data?.record) {
       videoTitle.value = data.record.title || '';
       videoDescription.value = data.record.description || '';
+      videoAuthorName.value = data.record.authorName || '';
       existingThumbnail.value = data.record.thumbnail || '';
 
       // 获取视频详情以获取标签信息
@@ -141,16 +144,23 @@ async function handleConfirm() {
     const data = modalApi.getData() as { record?: MediaVideoVo };
     const videoId = data?.record?.videoId;
 
-    await videoUpdate(
-      {
-        videoId,
-        title: videoTitle.value,
-        description: videoDescription.value,
-        categoryIds: selectedCategories.value,
-        directionIds: selectedDirections.value,
-      },
-      thumbnailFile.value || undefined,
-    );
+    // 如果有新封面，先上传获取URL
+    let thumbnailUrl = existingThumbnail.value;
+    if (thumbnailFile.value) {
+      const uploadRes = await uploadApi(thumbnailFile.value);
+      const res = (uploadRes as any)?.data || uploadRes;
+      thumbnailUrl = res.url;
+    }
+
+    await videoUpdate({
+      videoId,
+      title: videoTitle.value,
+      description: videoDescription.value,
+      authorName: videoAuthorName.value || undefined,
+      categoryIds: selectedCategories.value,
+      directionIds: selectedDirections.value,
+      thumbnail: thumbnailUrl,
+    });
 
     message.success('视频信息更新成功');
     emit('reload');
@@ -169,6 +179,7 @@ async function handleClosed() {
   }
   videoTitle.value = '';
   videoDescription.value = '';
+  videoAuthorName.value = '';
   selectedCategories.value = [];
   selectedDirections.value = [];
   thumbnailFile.value = null;
@@ -183,51 +194,72 @@ async function handleClosed() {
       <!-- 视频标题 -->
       <div class="form-item">
         <label class="form-label">视频标题<span class="required">*</span></label>
-        <input
-          type="text"
-          class="form-input"
-          v-model="videoTitle"
-          placeholder="请输入视频标题"
-        />
+        <div class="form-input-wrap">
+          <input
+            type="text"
+            class="form-input"
+            v-model="videoTitle"
+            placeholder="请输入视频标题"
+          />
+        </div>
       </div>
 
       <!-- 视频描述 -->
-      <div class="form-item">
+      <div class="form-item textarea-item">
         <label class="form-label">视频描述</label>
-        <textarea
-          class="form-textarea"
-          v-model="videoDescription"
-          placeholder="请输入视频描述"
-          rows="3"
-        ></textarea>
+        <div class="form-input-wrap">
+          <textarea
+            class="form-textarea"
+            v-model="videoDescription"
+            placeholder="请输入视频描述"
+            rows="3"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- 作者名称 -->
+      <div class="form-item">
+        <label class="form-label">作者名称</label>
+        <div class="form-input-wrap">
+          <input
+            type="text"
+            class="form-input"
+            v-model="videoAuthorName"
+            placeholder="请输入作者名称"
+          />
+        </div>
       </div>
 
       <!-- 分类选择 -->
       <div class="form-item">
         <label class="form-label">分类标签</label>
-        <Select
-          v-model:value="selectedCategories"
-          mode="multiple"
-          placeholder="请选择分类标签"
-          :options="categoryOptions"
-          :loading="loadingTags"
-          style="width: 100%"
-          allow-clear
-        />
+        <div class="form-input-wrap">
+          <Select
+            v-model:value="selectedCategories"
+            mode="multiple"
+            placeholder="请选择分类标签"
+            :options="categoryOptions"
+            :loading="loadingTags"
+            style="width: 100%"
+            allow-clear
+          />
+        </div>
       </div>
 
       <!-- 方向选择 -->
       <div class="form-item">
         <label class="form-label">方向标签</label>
-        <Select
-          v-model:value="selectedDirections"
-          mode="multiple"
-          placeholder="请选择方向标签"
-          :options="directionOptions"
-          :loading="loadingTags"
-          style="width: 100%"
-          allow-clear
-        />
+        <div class="form-input-wrap">
+          <Select
+            v-model:value="selectedDirections"
+            mode="multiple"
+            placeholder="请选择方向标签"
+            :options="directionOptions"
+            :loading="loadingTags"
+            style="width: 100%"
+            allow-clear
+          />
+        </div>
       </div>
 
       <!-- 封面上传 -->
@@ -281,12 +313,17 @@ async function handleClosed() {
 }
 
 .form-item {
-  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 18px;
 }
 
 .form-label {
-  display: block;
-  margin-bottom: 8px;
+  flex-shrink: 0;
+  width: 80px;
+  text-align: right;
+  padding-right: 12px;
+  line-height: 40px;
   font-size: 14px;
   font-weight: 500;
   color: #1A1A1A;
@@ -297,8 +334,18 @@ async function handleClosed() {
   margin-left: 2px;
 }
 
+.form-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.textarea-item .form-label {
+  line-height: 32px;
+  padding-top: 4px;
+}
+
 .form-input {
-  width: 100%;
+  flex: 1;
   height: 40px;
   padding: 0 12px;
   border: 1px solid #ECECEC;
@@ -313,7 +360,7 @@ async function handleClosed() {
 }
 
 .form-textarea {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   border: 1px solid #ECECEC;
   border-radius: 8px;
@@ -331,13 +378,10 @@ async function handleClosed() {
 .upload-item {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
 }
 
 .upload-item .form-label {
-  margin-top: 8px;
-  white-space: nowrap;
-  min-width: 70px;
+  padding-top: 4px;
 }
 
 .upload-right {

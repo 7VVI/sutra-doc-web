@@ -108,9 +108,13 @@ export interface MediaVideoBo {
   videoId?: number;
   title?: string;
   description?: string;
+  /** 作者名称 */
+  authorName?: string;
   authType?: number;
   /** 状态: 0-待审核, 1-已发布, 2-已下架 */
   status?: number;
+  /** 缩略图URL */
+  thumbnail?: string;
   /** 分类标签ID列表 */
   categoryIds?: number[];
   /** 方向标签ID列表 */
