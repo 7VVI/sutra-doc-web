@@ -21,12 +21,12 @@ const videos = ref<MediaVideoVo[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const currentPage = ref(1);
-const pageSize = 16;
+const pageSize = 12;
 
 // 筛选状态
 const mukeSearch = ref('');
 const mukeSort = ref('new');
-const sidebarExpanded = ref(false);
+const filterExpanded = ref(false);
 const fDirection = ref<number | null>(null);
 const fCategory = ref<number | null>(null);
 const fYear = ref<string>('all');
@@ -57,8 +57,8 @@ function showToast(msg: string, dur = 2500) {
 // 加载标签
 async function loadTags() {
   try {
-    const catRes = await getMediaTagList(1); // type=1 分类标签
-    const dirRes = await getMediaTagList(2); // type=2 方向标签
+    const catRes = await getMediaTagList(1);
+    const dirRes = await getMediaTagList(2);
     categoryTags.value = (catRes as any)?.data || catRes || [];
     directionTags.value = (dirRes as any)?.data || dirRes || [];
   } catch (e) {
@@ -94,26 +94,22 @@ async function loadVideos() {
   }
 }
 
-// 初始化加载
 onMounted(() => {
   loadTags();
   loadVideos();
 });
 
-// 监听筛选条件变化
 watch([mukeSearch, mukeSort, fDirection, fCategory, fYear, fAuthor], () => {
   currentPage.value = 1;
   loadVideos();
 });
 
-// 分页
 function goToPage(page: number) {
   if (page < 1 || page > Math.ceil(total.value / pageSize)) return;
   currentPage.value = page;
   loadVideos();
 }
 
-// 重置筛选
 function resetFilters() {
   fDirection.value = null;
   fCategory.value = null;
@@ -122,7 +118,6 @@ function resetFilters() {
   showToast('已重置全部筛选条件');
 }
 
-// 格式化时长
 function formatDuration(seconds: number | undefined) {
   if (!seconds) return '00:00';
   const m = Math.floor(seconds / 60);
@@ -130,7 +125,6 @@ function formatDuration(seconds: number | undefined) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// 格式化文件大小
 function formatFileSize(bytes: number) {
   if (!bytes) return '0 KB';
   if (bytes < 1024) return bytes + ' B';
@@ -138,7 +132,6 @@ function formatFileSize(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-// 格式化日期
 function formatDate(d: string) {
   if (!d) return '';
   return d.substring(0, 10);
@@ -150,12 +143,40 @@ const playerLoading = ref(false);
 const playerVideo = ref<MediaVideoVo | null>(null);
 const playerSrc = ref('');
 let playerBlobUrl = '';
+const videoRef = ref<HTMLVideoElement | null>(null);
+const playerPlaying = ref(false);
+const playerCurrentTime = ref(0);
+const playerDuration = ref(0);
+const playerVolume = ref(75);
+const playerMuted = ref(false);
+const playerSpeed = ref(1);
+const playerControlsVisible = ref(true);
+let playerControlsTimer: ReturnType<typeof setTimeout> | null = null;
+let playerScrubbing = false;
+const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
+const playerProgressPct = computed(() => {
+  if (!playerDuration.value) return 0;
+  return (playerCurrentTime.value / playerDuration.value) * 100;
+});
+
+function formatPlayerTime(sec: number) {
+  if (!sec || !isFinite(sec)) return '0:00';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  return m + ':' + String(s).padStart(2, '0');
+}
 
 async function playVideo(video: MediaVideoVo) {
   playerVideo.value = video;
   playerOpen.value = true;
   playerLoading.value = true;
   playerSrc.value = '';
+  playerPlaying.value = false;
+  playerCurrentTime.value = 0;
+  playerDuration.value = 0;
   try {
     const { useAccessStore } = await import('@vben/stores');
     const { useAppConfig } = await import('@vben/hooks');
@@ -163,11 +184,11 @@ async function playVideo(video: MediaVideoVo) {
     const { clientId } = useAppConfig(import.meta.env, import.meta.env.PROD);
     const res = await fetch(getMediaPlayUrl(video.videoId), {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: 'Bearer ' + token,
         ClientID: clientId,
       },
     });
-    if (!res.ok) throw new Error(`播放失败: ${res.status}`);
+    if (!res.ok) throw new Error('播放失败: ' + res.status);
     const blob = await res.blob();
     if (playerBlobUrl) URL.revokeObjectURL(playerBlobUrl);
     playerBlobUrl = URL.createObjectURL(blob);
@@ -184,9 +205,112 @@ function closePlayer() {
   playerOpen.value = false;
   playerVideo.value = null;
   playerSrc.value = '';
+  playerPlaying.value = false;
   if (playerBlobUrl) {
     URL.revokeObjectURL(playerBlobUrl);
     playerBlobUrl = '';
+  }
+  if (playerControlsTimer) clearTimeout(playerControlsTimer);
+}
+
+function onVideoPlay() { playerPlaying.value = true; showPlayerControls(); }
+function onVideoPause() { playerPlaying.value = false; showPlayerControls(); }
+function onTimeUpdate() {
+  if (playerScrubbing) return;
+  playerCurrentTime.value = videoRef.value?.currentTime || 0;
+}
+function onMetaLoaded() {
+  playerDuration.value = videoRef.value?.duration || 0;
+}
+function onVideoEnded() {
+  playerPlaying.value = false;
+  showPlayerControls();
+}
+
+function togglePlay() {
+  if (!videoRef.value) return;
+  if (videoRef.value.paused) videoRef.value.play();
+  else videoRef.value.pause();
+}
+
+function showPlayerControls() {
+  playerControlsVisible.value = true;
+  if (playerControlsTimer) clearTimeout(playerControlsTimer);
+  if (playerPlaying.value) {
+    playerControlsTimer = setTimeout(() => {
+      playerControlsVisible.value = false;
+    }, 3000);
+  }
+}
+
+function hidePlayerControlsSoon() {
+  if (playerControlsTimer) clearTimeout(playerControlsTimer);
+  if (playerPlaying.value) {
+    playerControlsTimer = setTimeout(() => {
+      playerControlsVisible.value = false;
+    }, 1000);
+  }
+}
+
+function startScrub(e: MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  playerScrubbing = true;
+  seekTo(e);
+  document.addEventListener('mousemove', onScrub);
+  document.addEventListener('mouseup', stopScrub);
+}
+
+function onScrub(e: MouseEvent) {
+  if (!playerScrubbing) return;
+  seekTo(e);
+}
+
+function stopScrub() {
+  playerScrubbing = false;
+  document.removeEventListener('mousemove', onScrub);
+  document.removeEventListener('mouseup', stopScrub);
+}
+
+function seekTo(e: MouseEvent) {
+  const el = (e.target as HTMLElement).closest('.progress-container');
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  if (videoRef.value && playerDuration.value) {
+    videoRef.value.currentTime = pct * playerDuration.value;
+    playerCurrentTime.value = videoRef.value.currentTime;
+  }
+}
+
+function togglePlayerMute() {
+  if (!videoRef.value) return;
+  playerMuted.value = !playerMuted.value;
+  videoRef.value.muted = playerMuted.value;
+}
+
+function setPlayerVolume(e: Event) {
+  const v = parseInt((e.target as HTMLInputElement).value);
+  playerVolume.value = v;
+  if (videoRef.value) videoRef.value.volume = v / 100;
+  if (v === 0) playerMuted.value = true;
+  else playerMuted.value = false;
+}
+
+function cycleSpeed() {
+  const idx = speeds.indexOf(playerSpeed.value);
+  playerSpeed.value = speeds[(idx + 1) % speeds.length];
+  if (videoRef.value) videoRef.value.playbackRate = playerSpeed.value;
+}
+
+function togglePlayerFullscreen() {
+  const wrapper = document.querySelector('.player-wrapper');
+  if (!wrapper) return;
+  if (!document.fullscreenElement) {
+    (wrapper as HTMLElement).requestFullscreen?.();
+    setTimeout(() => showPlayerControls(), 100);
+  } else {
+    document.exitFullscreen?.();
   }
 }
 
@@ -264,7 +388,6 @@ async function handleLike() {
       videoDetail.value.likeCount++;
       showToast('点赞成功');
     }
-    // 同步更新列表中的状态
     const v = videos.value.find(v => v.videoId === videoDetail.value.videoId);
     if (v) {
       v.hasLiked = videoDetail.value.hasLiked;
@@ -310,16 +433,16 @@ const totalPages = computed(() => Math.ceil(total.value / pageSize));
 const aiCls = (e: string) => ({xlsx:'ai-xlsx',docx:'ai-docx',pdf:'ai-pdf',pptx:'ai-pptx',zip:'ai-zip'})[e]||'ai-pdf';
 const aiFA = (e: string) => ({xlsx:'fa-solid fa-file-excel',docx:'fa-solid fa-file-word',pdf:'fa-solid fa-file-pdf',pptx:'fa-solid fa-file-powerpoint',zip:'fa-solid fa-file-zipper'})[e]||'fa-solid fa-file';
 
-// 点击右侧区域自动折叠（无筛选条件时）
+// 点击主区域自动折叠（无筛选条件时）
 function handleMainClick() {
-  if (sidebarExpanded.value && filterBadge.value === 0) {
-    sidebarExpanded.value = false;
+  if (filterExpanded.value && filterBadge.value === 0) {
+    filterExpanded.value = false;
   }
 }
 
-// 切换侧边栏展开状态
-function toggleSidebar() {
-  sidebarExpanded.value = !sidebarExpanded.value;
+// 切换筛选面板展开状态
+function toggleFilterPanel() {
+  filterExpanded.value = !filterExpanded.value;
 }
 
 // 设置方向筛选
@@ -334,1208 +457,1614 @@ function setCategoryFilter(tagId: number | null) {
 </script>
 
 <template>
-  <div class="portal-muke-page">
-    <!-- 主布局 -->
-    <div class="muke-layout">
-      <!-- 左侧筛选面板 -->
-      <aside class="muke-sidebar" :class="{ expanded: sidebarExpanded }">
-        <div class="sidebar-header" @click="toggleSidebar">
-          <i class="fa-solid fa-sliders"></i>
-          <div class="sidebar-header-text">
-            筛选条件
-            <span v-if="filterBadge > 0" class="filter-active-count">{{ filterBadge }}</span>
-          </div>
+  <div class="apple-muke">
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="hero-content">
+        <h1 class="hero-title">讲武堂</h1>
+        <p class="hero-subtitle">让每一次学习，学以致用</p>
+        <div class="hero-search">
+          <svg class="hero-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="text" v-model="mukeSearch" placeholder="搜索课程名称、讲师...">
         </div>
+      </div>
+    </section>
 
-        <div class="filter-group">
-          <div class="filter-label">方向</div>
-          <div class="filter-tags">
-            <span class="filter-tag" :class="{ active: !fDirection }" @click="setDirectionFilter(null)">全部</span>
-            <span v-for="t in directionTags" :key="t.tagId" class="filter-tag" :class="{ active: fDirection === t.tagId }" @click="setDirectionFilter(t.tagId)">{{ t.tagName }}</span>
-          </div>
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-label">分类</div>
-          <div class="filter-tags">
-            <span class="filter-tag" :class="{ active: !fCategory }" @click="setCategoryFilter(null)">全部</span>
-            <span v-for="t in categoryTags" :key="t.tagId" class="filter-tag" :class="{ active: fCategory === t.tagId }" @click="setCategoryFilter(t.tagId)">{{ t.tagName }}</span>
-          </div>
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-label">年份</div>
-          <select class="filter-select" v-model="fYear">
-            <option value="all">全部年份</option>
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
-            <option value="2024">2024</option>
-          </select>
-        </div>
-
-        <div class="filter-group">
-          <div class="filter-label">讲师</div>
-          <select class="filter-select" v-model="fAuthor">
-            <option value="all">全部讲师</option>
-          </select>
-        </div>
-
-        <div class="filter-reset" @click="resetFilters">
-          <i class="fa-solid fa-rotate-left"></i>
-          重置筛选
-        </div>
-      </aside>
-
-      <!-- 右侧主内容 -->
-      <main class="muke-main" @click="handleMainClick">
-        <div class="main-header">
-          <div class="main-title-area">
-            <div class="main-title">讲武堂</div>
-            <div class="main-desc">让每一次学习，学以致用</div>
-          </div>
-          <div class="main-search">
-            <input type="text" v-model="mukeSearch" placeholder="搜索课程名称、讲师...">
-            <i class="fa-solid fa-magnifying-glass"></i>
-          </div>
-        </div>
-
-        <div class="sort-bar">
-          <span class="sort-left"></span>
-          <div class="sort-right">
-            <button class="sort-btn" :class="{ active: mukeSort === 'new' }" @click="mukeSort = 'new'">
-              <i class="fa-regular fa-clock"></i>最新
-            </button>
-            <button class="sort-btn" :class="{ active: mukeSort === 'hot' }" @click="mukeSort = 'hot'">
-              <i class="fa-solid fa-fire"></i>热门
-            </button>
-            <button class="sort-btn" :class="{ active: mukeSort === 'name' }" @click="mukeSort = 'name'">
-              <i class="fa-solid fa-arrow-down-a-z"></i>名称
-            </button>
-          </div>
-        </div>
-
-        <!-- 加载中 -->
-        <div v-if="loading" class="muke-loading">
-          <i class="fa-solid fa-spinner fa-spin"></i>
-          <span>加载中...</span>
-        </div>
-
-        <!-- 课程网格 -->
-        <div v-else-if="videos.length > 0" class="course-grid">
-          <div v-for="(v, idx) in videos" :key="v.videoId" class="course-card" :style="{ animationDelay: `${idx * 0.04}s` }">
-            <div class="course-thumb" @click="playVideo(v)">
-              <img v-if="v.thumbnail" :src="v.thumbnail" :alt="v.title" loading="lazy">
-              <div v-else class="thumb-placeholder"><i class="fa-solid fa-video"></i></div>
-              <div class="course-thumb-overlay"></div>
-              <div class="course-views"><i class="fa-regular fa-eye"></i>{{ v.viewCount.toLocaleString() }}</div>
-              <div class="course-play"><i class="fa-solid fa-play"></i></div>
-            </div>
-            <div class="course-body" @click="openDetail(v)">
-              <div class="course-title-wrapper">
-                <div class="course-title">{{ v.title }}</div>
-                <div class="course-attach-badge-inline">
-                  <i class="fa-solid fa-paperclip"></i>附件({{ v.attachmentCount || 0 }})
-                </div>
-              </div>
-              <div class="course-meta-row">
-                <div class="meta-author">
-                  <div class="meta-avatar">{{ v.authorName?.charAt(0) || '?' }}</div>
-                  <span>{{ v.authorName || '未知' }}</span>
-                </div>
-                <div class="meta-date"><i class="fa-regular fa-calendar"></i>{{ formatDate(v.createTime) }}</div>
-              </div>
-            </div>
-            <div class="course-footer" @click="openDetail(v)">
-              <div class="course-like" @click="toggleLikeOnCard(v, $event)">
-                <div class="like-btn" :class="{ active: v.hasLiked }">
-                  <i :class="likingVideoId === v.videoId ? 'fa-solid fa-spinner fa-spin' : (v.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
-                </div>
-                <span class="like-count">{{ v.likeCount }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 空状态 -->
-        <div v-else class="empty-state show">
-          <div class="empty-icon"><i class="fa-regular fa-circle-play"></i></div>
-          <div class="empty-title">未找到匹配课程</div>
-          <div class="empty-desc">请尝试调整筛选条件或关键词</div>
-        </div>
-
-        <!-- 分页 -->
-        <div v-if="totalPages > 1 && !loading" class="muke-pagination">
-          <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
-            <i class="fa-solid fa-chevron-left"></i>
+    <!-- Filter Bar -->
+    <section class="filter-bar">
+      <div class="filter-bar-inner">
+        <div class="filter-bar-left">
+          <button class="filter-toggle" :class="{ active: filterBadge > 0 }" @click="toggleFilterPanel">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            筛选
+            <span v-if="filterBadge > 0" class="filter-badge">{{ filterBadge }}</span>
+            <svg class="toggle-arrow" :class="{ open: filterExpanded }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
-          <template v-for="p in pageNumbers" :key="p">
-            <span v-if="p === '...'" class="page-ellipsis">…</span>
-            <button v-else class="page-btn" :class="{ active: p === currentPage }" @click="goToPage(p as number)">
-              {{ p }}
-            </button>
-          </template>
-          <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
-            <i class="fa-solid fa-chevron-right"></i>
+          <button v-if="filterBadge > 0" class="filter-reset-btn" @click="resetFilters">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            重置
           </button>
         </div>
-      </main>
+        <div class="filter-sort">
+          <button class="sort-pill" :class="{ active: mukeSort === 'new' }" @click="mukeSort = 'new'">最新</button>
+          <button class="sort-pill" :class="{ active: mukeSort === 'hot' }" @click="mukeSort = 'hot'">热门</button>
+          <button class="sort-pill" :class="{ active: mukeSort === 'name' }" @click="mukeSort = 'name'">名称</button>
+        </div>
+      </div>
+
+      <!-- Expanded filter panel -->
+      <Transition name="filter-slide">
+        <div v-if="filterExpanded" class="filter-panel">
+          <div class="filter-row">
+            <span class="filter-label">方向</span>
+            <div class="filter-chips">
+              <button class="filter-chip" :class="{ active: !fDirection }" @click="setDirectionFilter(null)">全部</button>
+              <button
+                v-for="t in directionTags" :key="'d-'+t.tagId"
+                class="filter-chip" :class="{ active: fDirection === t.tagId }"
+                @click="setDirectionFilter(fDirection === t.tagId ? null : t.tagId)"
+              >{{ t.tagName }}</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">分类</span>
+            <div class="filter-chips">
+              <button class="filter-chip" :class="{ active: !fCategory }" @click="setCategoryFilter(null)">全部</button>
+              <button
+                v-for="t in categoryTags" :key="'c-'+t.tagId"
+                class="filter-chip" :class="{ active: fCategory === t.tagId }"
+                @click="setCategoryFilter(fCategory === t.tagId ? null : t.tagId)"
+              >{{ t.tagName }}</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">年份</span>
+            <div class="filter-chips">
+              <button class="filter-chip" :class="{ active: fYear === 'all' }" @click="fYear = 'all'">全部</button>
+              <button class="filter-chip" :class="{ active: fYear === '2026' }" @click="fYear = '2026'">2026</button>
+              <button class="filter-chip" :class="{ active: fYear === '2025' }" @click="fYear = '2025'">2025</button>
+              <button class="filter-chip" :class="{ active: fYear === '2024' }" @click="fYear = '2024'">2024</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">讲师</span>
+            <div class="filter-chips">
+              <button class="filter-chip" :class="{ active: fAuthor === 'all' }" @click="fAuthor = 'all'">全部</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </section>
+
+    <!-- Loading -->
+    <div v-if="loading" class="loading-state">
+      <div class="loading-spinner"></div>
+      <span>正在加载</span>
     </div>
 
-    <!-- 详情弹窗 -->
+    <!-- Course Grid -->
+    <section v-else-if="videos.length > 0" class="course-grid">
+      <article
+        v-for="(v, idx) in videos" :key="v.videoId"
+        class="card"
+        :style="{ '--i': idx }"
+      >
+        <div class="card-thumb" @click="playVideo(v)">
+          <img v-if="v.thumbnail" :src="v.thumbnail" :alt="v.title" loading="lazy">
+          <div v-else class="thumb-fallback">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <div class="card-play-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg>
+          </div>
+          <div class="card-views-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            {{ v.viewCount.toLocaleString() }}
+          </div>
+        </div>
+
+        <div class="card-body" @click="openDetail(v)">
+          <div class="card-main">
+            <h3 class="card-title">{{ v.title }}</h3>
+            <div class="card-meta">
+              <span class="author-avatar">{{ v.authorName?.charAt(0) || '?' }}</span>
+              <span class="author-name">{{ v.authorName || '未知' }}</span>
+              <span class="meta-dot">·</span>
+              <span class="card-date">{{ formatDate(v.createTime) }}</span>
+            </div>
+          </div>
+          <div class="card-side">
+            <span class="card-attach-count">
+              <i class="fa-solid fa-paperclip"></i>
+              {{ v.attachmentCount || 0 }}
+            </span>
+            <div class="card-like" @click.stop="toggleLikeOnCard(v, $event)">
+              <i :class="likingVideoId === v.videoId ? 'fa-solid fa-spinner fa-spin' : (v.hasLiked ? 'fa-solid fa-heart liked' : 'fa-regular fa-heart')"></i>
+              <span>{{ v.likeCount }}</span>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Empty State -->
+    <div v-else class="empty-state">
+      <p class="empty-title">未找到匹配课程</p>
+      <p class="empty-desc">请尝试调整筛选条件或关键词</p>
+    </div>
+
+    <!-- Pagination -->
+    <div v-if="totalPages > 1 && !loading" class="pagination">
+      <button class="page-arrow" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <template v-for="p in pageNumbers" :key="p">
+        <span v-if="p === '...'" class="page-dots">…</span>
+        <button v-else class="page-num" :class="{ active: p === currentPage }" @click="goToPage(p as number)">{{ p }}</button>
+      </template>
+      <button class="page-arrow" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+
+    <!-- Detail Modal -->
     <Teleport to="body">
-      <div v-if="detailModalOpen" class="modal-overlay open" @click.self="closeDetail">
-        <div class="modal">
-          <div class="modal-header">
-            <div class="modal-icon"><i class="fa-solid fa-paperclip"></i></div>
-            <div class="modal-info">
-              <div class="modal-title">{{ selectedVideo?.title }}</div>
-              <div class="modal-sub">
-                {{ videoDetail?.authorName || selectedVideo?.authorName }} ·
-                {{ formatDuration(videoDetail?.duration) }} ·
-                {{ videoAttachments.length }} 份附件
+      <Transition name="modal-fade">
+        <div v-if="detailModalOpen" class="detail-overlay" @click.self="closeDetail">
+          <div class="detail-modal">
+            <div class="detail-modal-header">
+              <div>
+                <h2 class="detail-modal-title">{{ selectedVideo?.title }}</h2>
+                <p class="detail-modal-sub">
+                  {{ videoDetail?.authorName || selectedVideo?.authorName }} ·
+                  {{ formatDuration(videoDetail?.duration) }} ·
+                  {{ videoAttachments.length }} 份附件
+                </p>
               </div>
-            </div>
-            <button class="modal-close" @click="closeDetail"><i class="fa-solid fa-xmark"></i></button>
-          </div>
-
-          <!-- 加载中 -->
-          <div v-if="detailLoading" class="modal-loading">
-            <i class="fa-solid fa-spinner fa-spin"></i>
-            <span>加载中...</span>
-          </div>
-
-          <template v-else-if="videoDetail">
-            <!-- 操作栏 -->
-            <div class="detail-actions">
-              <button class="detail-action-btn play-btn" @click="closeDetail(); playVideo(selectedVideo!)">
-                <i class="fa-solid fa-play"></i>播放视频
-              </button>
-              <button class="detail-action-btn like-btn" :class="{ liked: videoDetail.hasLiked }" @click="handleLike" :disabled="likingVideoId === videoDetail.videoId">
-                <i :class="likingVideoId === videoDetail.videoId ? 'fa-solid fa-spinner fa-spin' : (videoDetail.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
-                {{ videoDetail.hasLiked ? '已点赞' : '点赞' }} · {{ videoDetail.likeCount }}
+              <button class="detail-close" @click="closeDetail">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
 
-            <!-- 描述 -->
-            <div v-if="videoDetail.description" class="detail-desc">
-              {{ videoDetail.description }}
+            <div v-if="detailLoading" class="modal-loading">
+              <div class="loading-spinner"></div>
+              <span>加载中</span>
             </div>
 
-            <!-- 附件列表 -->
-            <div class="modal-body">
-              <div v-for="a in videoAttachments" :key="a.attachmentId" class="attach-item">
-                <div class="attach-icon" :class="aiCls(a.fileFormat || 'pdf')"><i :class="aiFA(a.fileFormat || 'pdf')"></i></div>
-                <div class="attach-info">
-                  <div class="attach-name">{{ a.fileName }}</div>
-                  <div class="attach-meta">{{ formatFileSize(a.fileSize) }}</div>
+            <template v-else-if="videoDetail">
+              <div class="detail-actions">
+                <button class="btn-play" @click="closeDetail(); playVideo(selectedVideo!)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/></svg>
+                  播放视频
+                </button>
+                <button class="btn-like" :class="{ liked: videoDetail.hasLiked }" @click="handleLike" :disabled="likingVideoId === videoDetail.videoId">
+                  <i :class="likingVideoId === videoDetail.videoId ? 'fa-solid fa-spinner fa-spin' : (videoDetail.hasLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart')"></i>
+                  {{ videoDetail.hasLiked ? '已点赞' : '点赞' }} · {{ videoDetail.likeCount }}
+                </button>
+              </div>
+
+              <div v-if="videoDetail.description" class="detail-desc">
+                {{ videoDetail.description }}
+              </div>
+
+              <div class="detail-attach-list">
+                <div v-for="a in videoAttachments" :key="a.attachmentId" class="attach-row">
+                  <div class="attach-icon" :class="aiCls(a.fileFormat || 'pdf')">
+                    <i :class="aiFA(a.fileFormat || 'pdf')"></i>
+                  </div>
+                  <div class="attach-info">
+                    <div class="attach-name">{{ a.fileName }}</div>
+                    <div class="attach-size">{{ formatFileSize(a.fileSize) }}</div>
+                  </div>
+                  <button class="attach-download" @click="downloadAttach(a)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    下载
+                  </button>
                 </div>
-                <button class="attach-dl" @click="downloadAttach(a)"><i class="fa-solid fa-download"></i>下载</button>
+                <div v-if="videoAttachments.length === 0" class="attach-empty">暂无附件</div>
               </div>
-              <div v-if="videoAttachments.length === 0" class="attach-empty">暂无附件</div>
-            </div>
-          </template>
+            </template>
 
-          <div class="modal-footer">
-            <div class="modal-footer-info">发布于 {{ formatDate(videoDetail?.createTime || selectedVideo?.createTime) }}</div>
+            <div class="detail-footer">
+              发布于 {{ formatDate(videoDetail?.createTime || selectedVideo?.createTime) }}
+            </div>
           </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
 
-    <!-- 播放弹窗 -->
+    <!-- Video Player Modal -->
     <Teleport to="body">
-      <div v-if="playerOpen" class="player-overlay open" @click.self="closePlayer">
-        <div class="player-modal">
-          <div class="player-header">
-            <div class="player-title">{{ playerVideo?.title }}</div>
-            <button class="player-close" @click="closePlayer"><i class="fa-solid fa-xmark"></i></button>
-          </div>
-          <div class="player-body">
-            <div v-if="playerLoading" class="player-loading">
-              <i class="fa-solid fa-spinner fa-spin"></i>
-              <span>视频加载中...</span>
+      <Transition name="modal-fade">
+        <div v-if="playerOpen" class="player-overlay" @click.self="closePlayer">
+          <div class="player-wrapper">
+            <div class="player-title-bar">
+              <div class="player-title-text">{{ playerVideo?.title }}</div>
+              <button class="player-close-btn" @click.stop="closePlayer" title="关闭">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+              </button>
             </div>
-            <video
-              v-show="!playerLoading"
-              :src="playerSrc"
-              controls
-              autoplay
-              class="player-video"
-            ></video>
+
+            <div class="video-area"
+              @mousemove="showPlayerControls"
+              @mouseleave="hidePlayerControlsSoon"
+              @click.exact="togglePlay">
+
+              <div v-if="playerLoading" class="center-play">
+                <div class="center-play-btn loading-state">
+                  <i class="fa-solid fa-spinner fa-spin" style="color:#fff;font-size:28px"></i>
+                </div>
+              </div>
+
+              <video
+                ref="videoRef"
+                v-show="!playerLoading && playerSrc"
+                :src="playerSrc"
+                autoplay
+                class="player-video"
+                @play="onVideoPlay"
+                @pause="onVideoPause"
+                @timeupdate="onTimeUpdate"
+                @loadedmetadata="onMetaLoaded"
+                @ended="onVideoEnded"
+              ></video>
+
+              <div v-if="!playerPlaying && !playerLoading && playerSrc" class="center-play">
+                <div class="center-play-btn" @click.stop="togglePlay">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
+                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="control-bar" :class="{ visible: playerControlsVisible }" @click.stop>
+                <div class="progress-container" @mousedown="startScrub">
+                  <div class="progress-track">
+                    <div class="progress-filled" :style="{ width: playerProgressPct + '%' }"></div>
+                  </div>
+                </div>
+
+                <div class="controls-row">
+                  <div class="controls-left">
+                    <button class="ctrl-btn play-btn" @click.stop="togglePlay" :title="playerPlaying ? '暂停' : '播放'">
+                      <svg v-if="!playerPlaying" viewBox="0 0 24 24" fill="white" width="22" height="22">
+                        <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z"/>
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" fill="white" width="22" height="22">
+                        <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+                      </svg>
+                    </button>
+
+                    <div class="volume-group" @click.stop>
+                      <button class="ctrl-btn" @click="togglePlayerMute" title="音量">
+                        <svg v-if="playerMuted || playerVolume === 0" viewBox="0 0 24 24" fill="white" width="20" height="20">
+                          <path d="M16.5 12A4.5 4.5 0 0 0 14 8.5v2.09l2.41 2.41A4.47 4.47 0 0 0 16.5 12zM19 12a7 7 0 0 1-1.06 3.61l1.42 1.42A8.94 8.94 0 0 0 21 12a9 9 0 0 0-7-8.77v2.06A7 7 0 0 1 19 12zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a9 9 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" fill="white"/>
+                        </svg>
+                        <svg v-else-if="playerVolume < 50" viewBox="0 0 24 24" fill="white" width="20" height="20">
+                          <path d="M18.5 12A4.5 4.5 0 0 0 16 8.5v7A4.47 4.47 0 0 0 18.5 12zM5 9v6h4l5 5V4L9 9H5z" fill="white"/>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="white" width="20" height="20">
+                          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z" fill="white"/>
+                        </svg>
+                      </button>
+                      <div class="volume-slider-wrap">
+                        <input type="range" class="volume-slider" min="0" max="100" :value="playerVolume" @input="setPlayerVolume">
+                      </div>
+                    </div>
+
+                    <div class="time-display">
+                      <span>{{ formatPlayerTime(playerCurrentTime) }}</span>
+                      <span class="separator">/</span>
+                      <span>{{ formatPlayerTime(playerDuration) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="controls-right">
+                    <div class="speed-badge" @click.stop="cycleSpeed">{{ playerSpeed }}x</div>
+                    <button class="ctrl-btn" @click.stop="togglePlayerFullscreen" title="全屏">
+                      <svg viewBox="0 0 24 24" fill="white" width="20" height="20">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
 
-    <!-- Toast通知 -->
+    <!-- Toast -->
     <Teleport to="body">
-      <div class="toast-container">
-        <div v-for="t in toasts" :key="t.id" class="toast">
-          <i class="fa-regular fa-circle-check"></i>
+      <TransitionGroup name="toast-anim" tag="div" class="toast-container">
+        <div v-for="t in toasts" :key="t.id" class="toast-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
           <span>{{ t.msg }}</span>
         </div>
-      </div>
+      </TransitionGroup>
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.portal-muke-page {
-  animation: fadeUp 0.7s ease both;
+/* ===== Apple Design System ===== */
+.apple-muke {
+  min-height: 100vh;
+  background: #fafafa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.muke-layout {
+/* --- Hero Section --- */
+.hero {
+  padding: 72px 48px 36px;
   display: flex;
-  min-height: calc(100vh - 56px);
-}
-
-/* ===== 左侧筛选面板 ===== */
-.muke-sidebar {
-  width: 48px;
-  background: #FFFFFF;
-  border-right: 1px solid #ECECEC;
-  padding: 12px 8px;
-  position: sticky;
-  top: 56px;
-  height: calc(100vh - 56px);
-  overflow-y: auto;
-  flex-shrink: 0;
-  transition: width 0.25s ease, padding 0.25s ease;
-  cursor: pointer;
-}
-
-.muke-sidebar::-webkit-scrollbar { width: 4px; }
-.muke-sidebar::-webkit-scrollbar-thumb { background: #ECECEC; border-radius: 2px; }
-
-.muke-sidebar.expanded {
-  width: 220px;
-  padding: 24px 18px;
-  cursor: default;
-}
-
-.muke-sidebar:not(.expanded) .sidebar-header-text { display: none; }
-.muke-sidebar:not(.expanded) .filter-group { display: none; }
-.muke-sidebar:not(.expanded) .filter-reset { display: none; }
-
-.sidebar-header {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1A1A1A;
-  margin-bottom: 20px;
-  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
 }
 
-.sidebar-header i {
-  font-size: 14px;
-  color: #A0A0A0;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: #F5F5F5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: 0.25s;
-}
-
-.muke-sidebar:hover .sidebar-header i { background: #ECECEC; color: #1A1A1A; }
-.muke-sidebar.expanded .sidebar-header i { background: #1A1A1A; color: #fff; }
-
-.sidebar-header-text { flex: 1; }
-
-.filter-active-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  background: #2D8B55;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: 4px;
-  margin-left: 6px;
-}
-
-.filter-group {
-  margin-bottom: 18px;
-}
-
-.filter-label {
-  font-size: 11px;
-  color: #A0A0A0;
-  margin-bottom: 8px;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-}
-
-.filter-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.filter-tag {
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 400;
-  color: #6B6B6B;
-  background: #F5F5F5;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: 0.25s;
-  user-select: none;
-}
-
-.filter-tag:hover { background: #ECECEC; }
-.filter-tag.active {
-  background: #1A1A1A;
-  color: #fff;
-  font-weight: 500;
-}
-
-.filter-select {
+.hero-content {
   width: 100%;
-  height: 32px;
-  border: 1px solid #ECECEC;
-  border-radius: 6px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-family: inherit;
-  color: #1A1A1A;
-  background: #FAFAFA;
-  cursor: pointer;
-  transition: 0.25s;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A0A0A0' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 26px;
-}
-
-.filter-select:hover { border-color: #A0A0A0; }
-.filter-select:focus { border-color: #1A1A1A; outline: none; }
-
-.filter-reset {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #A0A0A0;
-  cursor: pointer;
-  transition: 0.25s;
-  padding: 8px 0;
-  margin-top: 8px;
-}
-
-.filter-reset:hover { color: #1A1A1A; }
-.filter-reset i { font-size: 10px; }
-
-/* ===== 右侧主内容 ===== */
-.muke-main {
-  flex: 1;
-  padding: 28px 32px 48px;
-  min-width: 0;
-}
-
-.main-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 20px;
 }
 
-.main-title-area {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-}
-
-.main-title {
+.hero-title {
   font-size: 42px;
   font-weight: 900;
   letter-spacing: -1px;
   color: #1A1A1A;
+  line-height: 1;
+  text-align: center;
+  margin: 0 0 10px;
+}
+
+.hero-subtitle {
+  font-size: 14px;
+  font-weight: 300;
+  color: #A0A0A0;
+  text-align: center;
+  letter-spacing: 0.3px;
+  margin: 0 0 36px;
+}
+
+.hero-search {
+  width: 100%;
+  max-width: 760px;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.hero-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #86868b;
+  pointer-events: none;
+}
+
+.hero-search input {
+  width: 100%;
+  height: 56px;
+  border: 2px solid #ECECEC;
+  border-radius: 20px;
+  padding: 0 20px 0 48px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #1A1A1A;
+  background: #fff;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.hero-search input:hover {
+  border-color: #D5D5D5;
+}
+
+.hero-search input:focus {
+  outline: none;
+  border-color: #1A1A1A;
+  box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.08);
+}
+
+.hero-search input::placeholder {
+  color: #A0A0A0;
+  font-weight: 300;
+}
+
+/* --- Filter Bar --- */
+.filter-bar {
+  position: sticky;
+  top: 56px;
+  z-index: 100;
+  background: rgba(250, 250, 250, 0.72);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.filter-bar-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.filter-bar-left {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.main-title span {
-  font-family: 'Playfair Display', serif;
-  font-weight: 700;
-  font-style: italic;
-  opacity: 0.12;
-  font-size: 26px;
-}
-
-.main-desc {
-  font-size: 14px;
-  color: #A0A0A0;
-  font-weight: 300;
-  margin-bottom: 12px;
-  letter-spacing: 0.3px;
-}
-
-.main-search {
-  position: relative;
-  width: 100%;
-  max-width: 760px;
-}
-
-.main-search input {
-  width: 100%;
-  height: 44px;
-  border: 2px solid #ECECEC;
-  border-radius: 12px;
-  padding: 0 16px 0 40px;
-  font-size: 14px;
-  font-family: inherit;
-  color: #1A1A1A;
-  background: #FFFFFF;
-  transition: 0.25s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.main-search input:hover { border-color: #D5D5D5; }
-.main-search input:focus { border-color: #1A1A1A; outline: none; box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.08); }
-.main-search input::placeholder { color: #A0A0A0; font-weight: 300; }
-
-.main-search i {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 15px;
-  color: #A0A0A0;
-  pointer-events: none;
-}
-
-/* 排序栏 */
-.sort-bar {
+.filter-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #F3F3F3;
-}
-
-.sort-left { font-size: 12px; color: #A0A0A0; font-weight: 300; }
-.sort-right { display: flex; gap: 4px; }
-
-.sort-btn {
-  padding: 5px 12px;
-  font-size: 11px;
-  font-weight: 400;
-  color: #A0A0A0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  transition: 0.25s;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.sort-btn:hover { color: #6B6B6B; background: #F5F5F5; }
-.sort-btn.active {
-  color: #1A1A1A;
-  border-color: #ECECEC;
-  background: #F5F5F5;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
   font-weight: 500;
+  font-family: inherit;
+  color: #86868b;
+  cursor: pointer;
+  transition: all 0.25s ease;
 }
 
-.sort-btn i { font-size: 10px; }
+.filter-toggle:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1d1d1f;
+}
 
-/* 加载中 */
-.muke-loading {
-  padding: 60px 24px;
-  text-align: center;
-  color: #A0A0A0;
-  font-size: 14px;
+.filter-toggle.active {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1d1d1f;
+  background: #fff;
+}
+
+.toggle-arrow {
+  transition: transform 0.3s ease;
+}
+
+.toggle-arrow.open {
+  transform: rotate(180deg);
+}
+
+.filter-reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #86868b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-reset-btn:hover {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #1d1d1f;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9px;
+}
+
+/* Filter Panel (expanded) */
+.filter-panel {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 4px 32px 16px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.filter-row {
+  display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.muke-loading i { font-size: 28px; }
-
-/* 课程网格 */
-.course-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+.filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #aeaeb2;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
 }
 
-.course-card {
-  background: #FFFFFF;
-  border: 1px solid #ECECEC;
-  border-radius: 14px;
+.filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  flex: 1;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.filter-chips::-webkit-scrollbar { display: none; }
+
+.filter-chip {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #86868b;
+  background: rgba(0, 0, 0, 0.03);
+  border: none;
+  border-radius: 980px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.filter-chip:hover {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.filter-chip.active {
+  color: #fff;
+  background: #1d1d1f;
+}
+
+/* Filter expand/collapse transition */
+.filter-slide-enter-active { transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+.filter-slide-leave-active { transition: all 0.2s ease; }
+.filter-slide-enter-from, .filter-slide-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.filter-slide-enter-to, .filter-slide-leave-from {
+  opacity: 1;
+  max-height: 300px;
+}
+
+.filter-sort {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 10px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.sort-pill {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #86868b;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sort-pill:hover { color: #1d1d1f; }
+
+.sort-pill.active {
+  color: #1d1d1f;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Loading --- */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 80px 24px;
+  color: #86868b;
+  font-size: 15px;
+}
+
+.loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(0, 0, 0, 0.08);
+  border-top-color: #1d1d1f;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Course Grid --- */
+.course-grid {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 40px 32px 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+}
+
+/* --- Card --- */
+.card {
+  background: #fff;
+  border-radius: 20px;
+  overflow: hidden;
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.4s ease;
+  animation: cardIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation-delay: calc(var(--i) * 0.06s);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.card:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* --- Card Thumbnail --- */
+.card-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   cursor: pointer;
-  transition: 0.25s;
-  animation: toastIn 0.35s ease both;
+  background: #f5f5f7;
 }
 
-.course-card:hover {
-  border-color: #D0D0D0;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  transform: translateY(-2px);
-}
-
-.course-thumb {
-  position: relative;
-  width: 100%;
-  padding-top: 56.25%;
-  overflow: hidden;
-}
-
-.course-thumb img {
-  position: absolute;
-  inset: 0;
+.card-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.thumb-placeholder {
+.card:hover .card-thumb img {
+  transform: scale(1.06);
+}
+
+.thumb-fallback {
   position: absolute;
   inset: 0;
-  background: #F5F5F5;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
-  color: #A0A0A0;
+  color: #d2d2d7;
 }
 
-.course-card:hover .course-thumb img { transform: scale(1.05); }
-
-.course-thumb-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.5));
-}
-
-.course-cat-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  backdrop-filter: blur(4px);
-  color: #6B6B6B;
-}
-
-.course-views {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 500;
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-variant-numeric: tabular-nums;
-}
-
-.course-views i { font-size: 9px; }
-
-.course-play {
+.card-play-icon {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%) scale(0.9);
-  width: 44px;
-  height: 44px;
+  transform: translate(-50%, -50%) scale(0.8);
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #1A1A1A;
-  font-size: 15px;
   opacity: 0;
-  transition: 0.25s;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.course-card:hover .course-play { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.card:hover .card-play-icon {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
 
-.course-body { padding: 10px 16px 6px; }
-
-.course-title-wrapper {
+.card-views-badge {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
-.course-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1A1A1A;
-  line-height: 1.35;
+/* --- Card Body --- */
+.card-body {
+  padding: 12px 16px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+}
+
+.card-main {
   flex: 1;
+  min-width: 0;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d1d1f;
+  line-height: 1.4;
+  margin: 0 0 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  letter-spacing: -0.01em;
 }
 
-.course-attach-badge-inline {
+.card-meta {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
-  background: #F5F5F5;
-  border-radius: 4px;
+  gap: 6px;
+}
+
+.author-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f5f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
-  color: #6B6B6B;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.course-attach-badge-inline i { font-size: 9px; }
-
-.course-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  color: #A0A0A0;
-}
-
-.meta-author { display: flex; align-items: center; gap: 5px; }
-
-.meta-avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: #F5F5F5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 7px;
-  color: #6B6B6B;
   font-weight: 600;
+  color: #86868b;
+  flex-shrink: 0;
 }
 
-.meta-date { display: flex; align-items: center; gap: 3px; }
-.meta-date i { font-size: 9px; }
-
-.course-footer {
-  padding: 10px 16px 12px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+.author-name {
+  font-size: 12px;
+  color: #86868b;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.course-like {
+.meta-dot {
+  font-size: 10px;
+  color: #d2d2d7;
+  flex-shrink: 0;
+}
+
+.card-date {
+  font-size: 12px;
+  color: #aeaeb2;
+  white-space: nowrap;
+}
+
+.card-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.card-attach-count {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  font-size: 12px;
+  color: #aeaeb2;
+  white-space: nowrap;
+  padding: 3px 6px;
+}
+
+.card-attach-count i {
+  font-size: 12px;
+}
+
+/* --- Card Like --- */
+.card-like {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #aeaeb2;
   cursor: pointer;
-  transition: 0.25s;
-}
-
-.like-btn {
-  width: 26px;
-  height: 26px;
+  padding: 3px 6px;
   border-radius: 6px;
-  border: 1px solid #ECECEC;
-  background: #FFFFFF;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  color: #A0A0A0;
-  transition: 0.25s;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.like-btn:hover { border-color: #E0E0E0; background: #F5F5F5; }
-.like-btn.active { border-color: #C44536; background: #FCEEEC; color: #C44536; }
-.like-btn i { font-size: 11px; }
+.card-like:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.06);
+}
 
-.like-count { font-size: 11px; color: #A0A0A0; font-weight: 400; }
-.course-like:hover .like-count { color: #6B6B6B; }
-
-/* 空状态 */
-.empty-state {
-  padding: 48px 24px;
+.card-like i {
+  font-size: 12px;
+  width: 12px;
   text-align: center;
 }
 
-.empty-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: #F5F5F5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 12px;
-  font-size: 18px;
-  color: #A0A0A0;
+.card-like i.liked {
+  color: #ff6b6b;
 }
 
-.empty-title { font-size: 14px; font-weight: 600; color: #6B6B6B; margin-bottom: 4px; }
-.empty-desc { font-size: 13px; color: #A0A0A0; font-weight: 300; }
+/* --- Empty State --- */
+.empty-state {
+  padding: 100px 24px;
+  text-align: center;
+}
 
-/* 分页 */
-.muke-pagination {
+.empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin: 0 0 6px;
+}
+
+.empty-desc {
+  font-size: 15px;
+  color: #86868b;
+  margin: 0;
+}
+
+/* --- Pagination --- */
+.pagination {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin-top: 32px;
+  padding: 32px 24px 64px;
 }
 
-.page-btn {
+.page-arrow {
   width: 36px;
   height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #86868b;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #ECECEC;
-  border-radius: 8px;
-  background: #FFFFFF;
-  color: #6B6B6B;
-  font-size: 13px;
-  cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.2s ease;
 }
 
-.page-btn:hover:not(:disabled):not(.active) {
-  border-color: #C0C0C0;
-  background: #F5F5F5;
-  color: #1A1A1A;
+.page-arrow:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1d1d1f;
 }
 
-.page-btn.active {
-  background: #1A1A1A;
-  color: #fff;
-  border-color: #1A1A1A;
-}
-
-.page-btn:disabled {
-  opacity: 0.4;
+.page-arrow:disabled {
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
-.page-ellipsis {
-  color: #A0A0A0;
-  font-size: 13px;
+.page-num {
+  min-width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #86868b;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.page-num:hover:not(.active) {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1d1d1f;
+}
+
+.page-num.active {
+  background: #1d1d1f;
+  color: #fff;
+}
+
+.page-dots {
+  color: #aeaeb2;
+  font-size: 14px;
   padding: 0 4px;
 }
 
-/* 弹窗 */
-.modal-overlay {
+/* ===== Detail Modal ===== */
+.detail-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   z-index: 99999;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
   padding: 24px;
 }
 
-.modal-overlay.open { opacity: 1; pointer-events: auto; }
-
-.modal {
-  background: #FFFFFF;
-  border-radius: 16px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+.detail-modal {
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border-radius: 24px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12);
   width: 100%;
-  max-width: 480px;
-  max-height: 80vh;
+  max-width: 520px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
-  transform: scale(0.96) translateY(12px);
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
-.modal-overlay.open .modal { transform: scale(1) translateY(0); }
+.detail-modal-header {
+  padding: 24px 28px 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
 
-.modal-header {
-  padding: 20px 22px 14px;
-  border-bottom: 1px solid #F3F3F3;
+.detail-modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin: 0 0 4px;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.detail-modal-sub {
+  font-size: 13px;
+  color: #86868b;
+  margin: 0;
+}
+
+.detail-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  color: #86868b;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
-.modal-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: #1A1A1A;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  color: #fff;
+.detail-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1d1d1f;
 }
-
-.modal-info { flex: 1; min-width: 0; }
-
-.modal-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1A1A1A;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.modal-sub { font-size: 11px; color: #A0A0A0; font-weight: 300; margin-top: 2px; }
-
-.modal-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid #ECECEC;
-  background: #FFFFFF;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: 0.25s;
-  color: #A0A0A0;
-  font-size: 13px;
-}
-
-.modal-close:hover { border-color: #1A1A1A; color: #1A1A1A; background: #F5F5F5; }
 
 .modal-loading {
-  padding: 40px 24px;
+  padding: 48px 24px;
   text-align: center;
-  color: #A0A0A0;
-  font-size: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  color: #86868b;
+  font-size: 15px;
 }
-
-.modal-loading i { font-size: 28px; }
 
 .detail-actions {
-  padding: 16px 22px;
+  padding: 0 28px 20px;
   display: flex;
   gap: 12px;
-  border-bottom: 1px solid #F3F3F3;
 }
 
-.detail-action-btn {
-  height: 38px;
-  padding: 0 18px;
-  border-radius: 10px;
-  border: 1px solid #ECECEC;
-  background: #FFFFFF;
-  font-size: 13px;
-  color: #6B6B6B;
+.btn-play {
+  height: 44px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 12px;
+  background: #1d1d1f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: 0.25s;
+  transition: all 0.25s ease;
 }
 
-.detail-action-btn:hover { border-color: #1A1A1A; color: #1A1A1A; }
-
-.detail-action-btn.play-btn {
-  background: #C44536;
-  color: #fff;
-  border-color: #C44536;
+.btn-play:hover {
+  background: #000;
+  transform: scale(1.02);
 }
 
-.detail-action-btn.play-btn:hover { background: #A33A2B; border-color: #A33A2B; }
+.btn-like {
+  height: 44px;
+  padding: 0 20px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #86868b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.25s ease;
+}
 
-.detail-action-btn.like-btn.liked {
-  color: #C44536;
-  border-color: #FCEEEC;
-  background: #FCEEEC;
+.btn-like:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1d1d1f;
+}
+
+.btn-like.liked {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.2);
+  background: rgba(255, 107, 107, 0.04);
 }
 
 .detail-desc {
-  padding: 16px 22px;
-  font-size: 13px;
-  color: #6B6B6B;
-  line-height: 1.6;
-  border-bottom: 1px solid #F3F3F3;
+  padding: 0 28px 20px;
+  font-size: 15px;
+  color: #6e6e73;
+  line-height: 1.65;
 }
 
-.modal-body {
+.detail-attach-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
-  max-height: 300px;
+  padding: 8px 0;
+  max-height: 280px;
 }
 
-.modal-body::-webkit-scrollbar { width: 4px; }
-.modal-body::-webkit-scrollbar-thumb { background: #ECECEC; border-radius: 2px; }
+.detail-attach-list::-webkit-scrollbar { width: 4px; }
+.detail-attach-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 2px; }
 
-.attach-item {
+.attach-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 22px;
-  transition: 0.25s;
-  cursor: default;
+  gap: 14px;
+  padding: 12px 28px;
+  transition: background 0.2s ease;
 }
 
-.attach-item:hover { background: #F5F5F5; }
+.attach-row:hover { background: rgba(0, 0, 0, 0.02); }
 
 .attach-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
-.ai-xlsx { background: #EFF7F2; color: #2D8B55; }
-.ai-docx { background: #EEF3F9; color: #3B6FB5; }
-.ai-pdf { background: #FCEEEC; color: #C44536; }
-.ai-pptx { background: #FDF3E7; color: #D4841C; }
-.ai-zip { background: #F0EDE8; color: #8B7355; }
+.ai-xlsx { background: #e8f5ed; color: #2d8b55; }
+.ai-docx { background: #e8eff8; color: #3b6fb5; }
+.ai-pdf { background: #fceeed; color: #c44536; }
+.ai-pptx { background: #fdf3e7; color: #d4841c; }
+.ai-zip { background: #f0ede8; color: #8b7355; }
 
 .attach-info { flex: 1; min-width: 0; }
 
 .attach-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: #1A1A1A;
+  color: #1d1d1f;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.attach-meta { font-size: 11px; color: #A0A0A0; font-weight: 300; margin-top: 1px; }
+.attach-size {
+  font-size: 12px;
+  color: #aeaeb2;
+  margin-top: 2px;
+}
 
-.attach-dl {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 6px;
-  border: 1px solid #ECECEC;
-  background: #FFFFFF;
-  font-size: 11px;
+.attach-download {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  font-size: 13px;
   font-weight: 500;
-  color: #6B6B6B;
-  cursor: pointer;
-  transition: 0.25s;
   font-family: inherit;
+  color: #86868b;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.attach-dl:hover { border-color: #1A1A1A; color: #1A1A1A; }
-.attach-dl i { font-size: 9px; }
-
-.attach-empty {
-  padding: 24px;
-  text-align: center;
-  color: #A0A0A0;
-  font-size: 13px;
-}
-
-.modal-footer {
-  padding: 10px 22px;
-  border-top: 1px solid #F3F3F3;
+  gap: 5px;
+  transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
-.modal-footer-info { font-size: 11px; color: #A0A0A0; font-weight: 300; }
-
-/* Toast */
-.toast-container {
-  position: fixed;
-  top: 64px;
-  right: 32px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.attach-download:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1d1d1f;
 }
 
-.toast {
-  background: #FFFFFF;
-  border: 1px solid #ECECEC;
-  border-radius: 8px;
-  padding: 10px 14px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #1A1A1A;
-  animation: toastIn 0.35s ease both;
+.attach-empty {
+  padding: 32px;
+  text-align: center;
+  color: #aeaeb2;
+  font-size: 15px;
 }
 
-.toast i { color: #2D8B55; font-size: 13px; }
-
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+.detail-footer {
+  padding: 14px 28px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  color: #aeaeb2;
 }
 
-@keyframes toastIn {
-  from { opacity: 0; transform: translateX(24px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* 响应式 */
-@media (max-width: 1200px) {
-  .course-grid { grid-template-columns: repeat(3, 1fr); }
-}
-
-@media (max-width: 900px) {
-  .course-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 768px) {
-  .muke-sidebar {
-    width: 100%;
-    height: auto;
-    position: relative;
-    top: 0;
-    border-right: none;
-    border-bottom: 1px solid #ECECEC;
-    padding: 16px 20px;
-    cursor: default;
-  }
-  .muke-sidebar .sidebar-header-text { display: block !important; }
-  .muke-sidebar .filter-group { display: block !important; }
-  .muke-sidebar .filter-reset { display: flex !important; }
-  .filter-tags { gap: 4px; }
-
-  .muke-main { padding: 20px 16px 32px; }
-  .course-grid { grid-template-columns: 1fr; }
-  .main-search { width: 100%; }
-  .toast-container { right: 16px; }
-}
-
-/* 播放弹窗 */
+/* ===== Video Player ===== */
 .player-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   z-index: 999999;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
   padding: 24px;
 }
 
-.player-overlay.open { opacity: 1; pointer-events: auto; }
-
-.player-modal {
+.player-wrapper {
+  width: 960px;
+  max-width: 96vw;
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
   background: #000;
-  border-radius: 16px;
-  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 32px 80px -12px rgba(0,0,0,0.7);
+}
+
+.player-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  padding: 1px;
+  background: linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 40%, transparent 60%, rgba(120,120,255,0.06) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.player-wrapper::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 15%;
+  right: 15%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+  z-index: 31;
+  pointer-events: none;
+}
+
+.video-area {
+  position: relative;
   width: 100%;
-  max-width: 860px;
-  display: flex;
-  flex-direction: column;
-  transform: scale(0.96);
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.player-overlay.open .player-modal { transform: scale(1); }
-
-.player-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
-  background: #1A1A1A;
-}
-
-.player-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  margin-right: 12px;
-}
-
-.player-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: none;
-  background: rgba(255, 255, 255, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: #000;
   cursor: pointer;
-  color: #A0A0A0;
-  font-size: 14px;
-  transition: 0.25s;
-  flex-shrink: 0;
-}
-
-.player-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
-
-.player-body {
-  width: 100%;
-  background: #000;
+  overflow: hidden;
 }
 
 .player-video {
   width: 100%;
   display: block;
-  max-height: 70vh;
   outline: none;
+  max-height: 75vh;
 }
 
-.player-loading {
+.center-play {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 120px 24px;
-  color: #A0A0A0;
-  font-size: 14px;
+  z-index: 10;
 }
 
-.player-loading i { font-size: 28px; }
+.center-play-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255,255,255,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.center-play-btn:hover {
+  transform: scale(1.08);
+  background: rgba(255,255,255,0.18);
+}
+
+.center-play-btn.loading-state {
+  cursor: default;
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.08);
+}
+
+.center-play-btn.loading-state:hover { transform: none; }
+
+.player-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: rgba(10, 10, 10, 0.95);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.player-title-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  margin-right: 16px;
+}
+
+.player-close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255,255,255,0.5);
+  transition: 0.2s;
+  flex-shrink: 0;
+}
+
+.player-close-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+.control-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+  padding: 32px 16px 14px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+
+.control-bar.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+.progress-container {
+  width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+  margin-bottom: 6px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 3px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  position: relative;
+  transition: height 0.15s ease;
+}
+
+.progress-container:hover .progress-track { height: 5px; }
+
+.progress-filled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.controls-left, .controls-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ctrl-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.ctrl-btn:hover { background: rgba(255,255,255,0.1); }
+.ctrl-btn.play-btn { width: 40px; height: 40px; }
+
+.time-display {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255,255,255,0.8);
+  white-space: nowrap;
+  margin: 0 6px;
+  user-select: none;
+}
+
+.time-display .separator { color: rgba(255,255,255,0.35); margin: 0 2px; }
+
+.volume-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.volume-slider-wrap {
+  width: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+  display: flex;
+  align-items: center;
+}
+
+.volume-group:hover .volume-slider-wrap { width: 72px; }
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 68px;
+  height: 3px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  outline: none;
+  margin: 0 2px;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.speed-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.speed-badge:hover { background: rgba(255,255,255,0.16); }
+
+/* Fullscreen */
+.player-wrapper:fullscreen {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.player-wrapper:fullscreen .player-title-bar { flex-shrink: 0; }
+
+.player-wrapper:fullscreen .video-area { flex: 1; min-height: 0; }
+
+.player-wrapper:fullscreen .player-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  max-height: 100%;
+}
+
+.player-wrapper:fullscreen .control-bar { z-index: 25; }
+
+/* ===== Transitions ===== */
+.modal-fade-enter-active { transition: opacity 0.35s ease; }
+.modal-fade-leave-active { transition: opacity 0.25s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.modal-fade-enter-active .detail-modal,
+.modal-fade-enter-active .player-wrapper {
+  transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.modal-fade-enter-from .detail-modal {
+  transform: scale(0.95) translateY(16px);
+}
+.modal-fade-enter-from .player-wrapper {
+  transform: scale(0.95);
+}
+.modal-fade-leave-active .detail-modal,
+.modal-fade-leave-active .player-wrapper {
+  transition: transform 0.25s ease;
+}
+.modal-fade-leave-to .detail-modal {
+  transform: scale(0.98) translateY(8px);
+}
+.modal-fade-leave-to .player-wrapper {
+  transform: scale(0.98);
+}
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  top: 72px;
+  right: 32px;
+  z-index: 9999999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast-item {
+  background: rgba(29, 29, 31, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 14px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.toast-item svg { color: #34c759; flex-shrink: 0; }
+
+.toast-anim-enter-active { transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+.toast-anim-leave-active { transition: all 0.25s ease; }
+.toast-anim-enter-from { opacity: 0; transform: translateX(40px) scale(0.95); }
+.toast-anim-leave-to { opacity: 0; transform: translateX(40px) scale(0.95); }
+
+/* --- Responsive --- */
+@media (max-width: 1024px) {
+  .course-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    padding: 32px 24px 20px;
+  }
+  .hero-title { font-size: 44px; }
+  .hero-subtitle { font-size: 19px; }
+}
+
+@media (max-width: 768px) {
+  .hero { padding: 40px 20px 20px; }
+  .hero-title { font-size: 28px; }
+  .hero-subtitle { font-size: 13px; margin-bottom: 28px; }
+  .hero-search input { height: 46px; font-size: 14px; border-radius: 14px; }
+
+  .filter-bar-inner { padding: 10px 16px; }
+  .filter-panel { padding: 4px 16px 12px; }
+  .filter-chip { padding: 5px 10px; font-size: 12px; }
+  .filter-label { font-size: 11px; width: 28px; }
+  .sort-pill { padding: 4px 10px; font-size: 11px; }
+  .filter-toggle { padding: 6px 10px; font-size: 12px; }
+  .filter-reset-btn { padding: 6px 10px; font-size: 12px; }
+
+  .course-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 24px 16px 16px;
+  }
+
+  .card { border-radius: 16px; }
+  .card-thumb { border-radius: 16px 16px 0 0; }
+
+  .detail-modal { border-radius: 20px; margin: 16px; }
+  .detail-modal-header { padding: 20px 20px 16px; }
+  .detail-modal-title { font-size: 18px; }
+  .detail-actions { padding: 0 20px 16px; }
+  .detail-desc { padding: 0 20px 16px; }
+  .attach-row { padding: 10px 20px; }
+  .detail-footer { padding: 12px 20px; }
+
+  .toast-container { right: 16px; top: 64px; }
+
+  .player-wrapper { border-radius: 14px; }
+  .control-bar { padding: 24px 10px 10px; }
+  .time-display { font-size: 12px; }
+  .center-play-btn { width: 64px; height: 64px; }
+}
 </style>

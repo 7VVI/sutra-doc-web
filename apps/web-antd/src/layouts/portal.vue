@@ -144,6 +144,15 @@ onUnmounted(() => {
 
     <!-- 导航栏 -->
     <nav class="portal-navbar" :class="{ 'with-shadow': navbarShadow }">
+      <!-- 品牌Logo -->
+      <div class="nav-brand" @click="setActiveTab('docs')">
+        <div class="nav-brand-icon">
+          <i class="fa-solid fa-book-open"></i>
+        </div>
+        <span class="nav-brand-name">SutraDoc</span>
+      </div>
+      <!-- 分隔线 -->
+      <div class="nav-divider"></div>
       <!-- 导航tabs -->
       <div class="nav-tabs">
         <button class="nav-tab" :class="{ active: activeTab === 'docs' }" @click="setActiveTab('docs')">
@@ -245,7 +254,7 @@ onUnmounted(() => {
   border-bottom: 1px solid #ECECEC;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 0;
   padding: 0 32px;
   z-index: 1000;
   transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -255,15 +264,79 @@ onUnmounted(() => {
   box-shadow: 0 1px 20px rgba(0, 0, 0, 0.05);
 }
 
+/* 品牌区域 */
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 10px;
+  transition: 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-brand:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.nav-brand-icon {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #1A1A1A 0%, #333 100%);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.9);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.nav-brand-icon::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg, transparent 40%, rgba(255, 255, 255, 0.12) 50%, transparent 60%);
+  animation: shine 5s ease-in-out infinite;
+}
+
+@keyframes shine {
+  0%, 100% { transform: translateX(-100%) translateY(-100%); }
+  50% { transform: translateX(100%) translateY(100%); }
+}
+
+.nav-brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: #1A1A1A;
+}
+
+/* 分隔线 */
+.nav-divider {
+  width: 1px;
+  height: 20px;
+  background: #E0E0E0;
+  margin: 0 14px;
+  flex-shrink: 0;
+}
+
+/* 导航Tabs */
 .nav-tabs {
   display: flex;
-  gap: 2px;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.03);
   border-radius: 10px;
   padding: 3px;
 }
 
 .nav-tab {
-  padding: 7px 22px;
+  padding: 6px 16px;
   border-radius: 8px;
   border: none;
   background: none;
@@ -271,10 +344,10 @@ onUnmounted(() => {
   font-weight: 500;
   color: #A0A0A0;
   cursor: pointer;
-  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -285,7 +358,7 @@ onUnmounted(() => {
 .nav-tab.active {
   background: #FFFFFF;
   color: #1A1A1A;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .nav-tab i {
@@ -293,62 +366,9 @@ onUnmounted(() => {
 }
 
 .nav-tab-icon {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
-}
-
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.nav-icon {
-  width: 30px;
-  height: 30px;
-  background: #1A1A1A;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 12px;
-  position: relative;
-  overflow: hidden;
-}
-
-.nav-icon::after {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(45deg, transparent 40%, rgba(255, 255, 255, 0.1) 50%, transparent 60%);
-  animation: shine 5s ease-in-out infinite;
-}
-
-@keyframes shine {
-  0%, 100% { transform: translateX(-100%) translateY(-100%); }
-  50% { transform: translateX(100%) translateY(100%); }
-}
-
-.nav-name {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #1A1A1A;
-}
-
-.nav-sub {
-  font-size: 9px;
-  color: #A0A0A0;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  font-weight: 300;
-  flex-shrink: 0;
 }
 
 /* 用户头像下拉 */
@@ -558,18 +578,22 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .portal-navbar {
-    gap: 16px;
     padding: 0 16px;
   }
-  .nav-tabs {
-    gap: 1px;
+  .nav-brand-name {
+    display: none;
+  }
+  .nav-divider {
+    margin: 0 10px;
   }
   .nav-tab {
-    padding: 6px 12px;
+    padding: 5px 10px;
     font-size: 12px;
+    gap: 4px;
   }
-  .nav-sub {
-    display: none;
+  .nav-tab-icon {
+    width: 16px;
+    height: 16px;
   }
   .nav-user-name {
     display: none;
