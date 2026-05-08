@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { getDashboardStat, getDeptStatList, getDeptList, searchDoc, getDeptDocTree, downloadDoc as apiDownloadDoc } from '#/api/kb';
 import type { DeptDocTreeNode } from '#/api/kb';
-import DeptDocTreeNodeComponent from './DeptDocTreeNode.vue';
 
 const router = useRouter();
 
@@ -188,47 +187,70 @@ onMounted(async () => {
 const modalVisible = ref(false);
 const modalLoading = ref(false);
 const modalDept = ref<DeptStat | null>(null);
-const modalSearch = ref('');
-const modalRootNodes = ref<DeptDocTreeNode[]>([]);
-// 懒加载：每个节点的子节点缓存
-const modalChildren = ref<Map<number, DeptDocTreeNode[]>>(new Map());
-// 展开的目录ID集合
-const expandedFolders = ref(new Set<number>());
+// 左侧根文件夹列表
+const modalRootFolders = ref<DeptDocTreeNode[]>([]);
+// 右侧文件列表
+const modalFiles = ref<DeptDocTreeNode[]>([]);
+// 当前选中的文件夹ID
+const selectedFolderId = ref<number | null>(null);
+// 展开的文件夹ID集合
+const expandedFolderIds = ref(new Set<number>());
+// 文件夹子节点缓存
+const folderChildrenCache = ref<Map<number, DeptDocTreeNode[]>>(new Map());
+// 加载中的文件夹ID
+const loadingFolderId = ref<number | null>(null);
 
-// 搜索过滤后的根节点（只搜索文档名）
-const filteredRootNodes = computed(() => {
-  if (!modalSearch.value.trim()) return modalRootNodes.value;
-  const kw = modalSearch.value.trim().toLowerCase();
-  return modalRootNodes.value.filter(n =>
-    n.name.toLowerCase().includes(kw) || (n.type === 'doc' && n.fileType?.toLowerCase().includes(kw))
-  );
-});
+// 格式化文件大小
+const formatFileSize = (bytes: number) => {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+const formatDateStr = (d: string) => d?.substring(0, 10) || '';
+const fileIconFA = (e: string) => ({xlsx:'fa-solid fa-file-excel',docx:'fa-solid fa-file-word',pdf:'fa-solid fa-file-pdf',pptx:'fa-solid fa-file-powerpoint'})[e]||'fa-solid fa-file';
 
+// 文档总数
 const modalDocCount = computed(() => {
   let count = 0;
-  const countNodes = (nodes: DeptDocTreeNode[]) => {
+  const countDocs = (nodes: DeptDocTreeNode[]) => {
     for (const n of nodes) {
       if (n.type === 'doc') count++;
-      const children = modalChildren.value.get(n.id);
-      if (children) countNodes(children);
+      const children = folderChildrenCache.value.get(n.id);
+      if (children) countDocs(children);
     }
   };
-  countNodes(modalRootNodes.value);
+  countDocs(modalRootFolders.value);
+  // 根节点直接下的文档
+  const rootChildren = folderChildrenCache.value.get(0) || [];
+  for (const n of rootChildren) {
+    if (n.type === 'doc') count++;
+  }
   return count;
 });
 
 async function openDeptModal(dept: DeptStat) {
   modalDept.value = dept;
-  modalSearch.value = '';
-  modalRootNodes.value = [];
-  modalChildren.value = new Map();
-  expandedFolders.value = new Set();
+  modalRootFolders.value = [];
+  modalFiles.value = [];
+  selectedFolderId.value = null;
+  expandedFolderIds.value = new Set();
+  folderChildrenCache.value = new Map();
+  loadingFolderId.value = null;
   modalVisible.value = true;
   modalLoading.value = true;
   try {
     const res = await getDeptDocTree(dept.deptId, 0);
     const data = (res as any)?.data || res || [];
-    modalRootNodes.value = Array.isArray(data) ? data : [];
+    const nodes = Array.isArray(data) ? data : [];
+    // 缓存根节点
+    folderChildrenCache.value.set(0, nodes);
+    // 根文件夹列表
+    modalRootFolders.value = nodes.filter(n => n.type === 'folder');
+    // 默认选中第一个文件夹并展开
+    if (modalRootFolders.value.length > 0) {
+      await selectAndExpand(modalRootFolders.value[0]);
+    }
   } catch (e) {
     console.error('加载部门目录失败:', e);
   } finally {
@@ -239,37 +261,87 @@ async function openDeptModal(dept: DeptStat) {
 function closeDeptModal() {
   modalVisible.value = false;
   modalDept.value = null;
-  modalRootNodes.value = [];
-  modalChildren.value = new Map();
-  expandedFolders.value = new Set();
+  modalRootFolders.value = [];
+  modalFiles.value = [];
+  selectedFolderId.value = null;
+  expandedFolderIds.value = new Set();
+  folderChildrenCache.value = new Map();
 }
 
-async function toggleFolderNode(node: DeptDocTreeNode) {
-  const s = new Set(expandedFolders.value);
-  if (s.has(node.id)) {
-    s.delete(node.id);
-    expandedFolders.value = s;
+// 判断文件夹是否有子文件夹
+function hasSubFolders(folderId: number): boolean {
+  const children = folderChildrenCache.value.get(folderId) || [];
+  return children.some(n => n.type === 'folder');
+}
+
+// 获取文件夹的子文件夹
+function getSubFolders(folderId: number): DeptDocTreeNode[] {
+  const children = folderChildrenCache.value.get(folderId) || [];
+  return children.filter(n => n.type === 'folder');
+}
+
+// 展开/折叠文件夹（点击箭头图标）
+async function toggleExpand(folder: DeptDocTreeNode) {
+  const s = new Set(expandedFolderIds.value);
+  if (s.has(folder.id)) {
+    // 已展开则折叠
+    s.delete(folder.id);
+    expandedFolderIds.value = s;
+    // 如果当前选中的是这个文件夹，清空文件列表
+    if (selectedFolderId.value === folder.id) {
+      modalFiles.value = [];
+    }
   } else {
-    s.add(node.id);
-    expandedFolders.value = s;
-    // 懒加载子节点
-    if (!modalChildren.value.has(node.id) && node.hasChildren) {
-      try {
-        const res = await getDeptDocTree(modalDept.value!.deptId, node.id);
+    // 未展开则展开并加载
+    s.add(folder.id);
+    expandedFolderIds.value = s;
+    loadingFolderId.value = folder.id;
+    try {
+      if (!folderChildrenCache.value.has(folder.id)) {
+        const res = await getDeptDocTree(modalDept.value!.deptId, folder.id);
         const data = (res as any)?.data || res || [];
         const children = Array.isArray(data) ? data : [];
-        const m = new Map(modalChildren.value);
-        m.set(node.id, children);
-        modalChildren.value = m;
-      } catch (e) {
-        console.error('加载子目录失败:', e);
+        const m = new Map(folderChildrenCache.value);
+        m.set(folder.id, children);
+        folderChildrenCache.value = m;
       }
+    } catch (e) {
+      console.error('加载子目录失败:', e);
+    } finally {
+      loadingFolderId.value = null;
     }
   }
 }
 
-function getChildren(nodeId: number): DeptDocTreeNode[] {
-  return modalChildren.value.get(nodeId) || [];
+// 点击文件夹：选中并展开（不折叠）
+async function selectAndExpand(folder: DeptDocTreeNode) {
+  selectedFolderId.value = folder.id;
+
+  // 确保展开
+  const s = new Set(expandedFolderIds.value);
+  if (!s.has(folder.id)) {
+    s.add(folder.id);
+    expandedFolderIds.value = s;
+  }
+
+  loadingFolderId.value = folder.id;
+  try {
+    // 懒加载子节点
+    if (!folderChildrenCache.value.has(folder.id)) {
+      const res = await getDeptDocTree(modalDept.value!.deptId, folder.id);
+      const data = (res as any)?.data || res || [];
+      const children = Array.isArray(data) ? data : [];
+      const m = new Map(folderChildrenCache.value);
+      m.set(folder.id, children);
+      folderChildrenCache.value = m;
+    }
+    const children = folderChildrenCache.value.get(folder.id) || [];
+    modalFiles.value = children.filter(n => n.type === 'doc');
+  } catch (e) {
+    console.error('加载文件夹内容失败:', e);
+  } finally {
+    loadingFolderId.value = null;
+  }
 }
 
 const downloadingDocId = ref<number | null>(null);
@@ -478,31 +550,116 @@ async function handleDownloadDoc(docId: number) {
             </div>
             <button class="doc-modal-close" @click="closeDeptModal"><i class="fa-solid fa-xmark"></i></button>
           </div>
-          <div class="doc-modal-search">
-            <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="text" v-model="modalSearch" placeholder="在当前部门内搜索文件...">
-          </div>
           <div class="doc-modal-body">
             <div v-if="modalLoading" class="doc-modal-loading">
               <i class="fa-solid fa-spinner fa-spin"></i><span>加载中...</span>
             </div>
             <template v-else>
-              <div class="doc-file-tree" v-if="filteredRootNodes.length">
-                <DeptDocTreeNodeComponent
-                  v-for="node in filteredRootNodes"
-                  :key="node.id"
-                  :node="node"
-                  :expanded="expandedFolders"
-                  :children-map="modalChildren"
-                  :downloading="downloadingDocId"
-                  :depth="0"
-                  @toggle="toggleFolderNode"
-                  @download="handleDownloadDoc"
-                />
-              </div>
-              <div v-else class="doc-modal-empty">
-                <i class="fa-regular fa-file-lines"></i>
-                <p>未找到匹配文件</p>
+              <div class="doc-split-view">
+                <!-- 左侧文件夹树 -->
+                <div class="doc-folder-panel">
+                  <div class="doc-folder-header">
+                    <i class="fa-regular fa-folder"></i>
+                    <span>目录</span>
+                  </div>
+                  <div class="doc-folder-tree">
+                    <!-- 递归渲染文件夹树 -->
+                    <template v-for="folder in modalRootFolders" :key="folder.id">
+                      <div
+                        class="doc-folder-node"
+                        :class="{ active: selectedFolderId === folder.id }"
+                      >
+                        <div class="doc-folder-header-row" @click="selectAndExpand(folder)">
+                          <span
+                            class="doc-tree-arrow"
+                            :class="{ expanded: expandedFolderIds.has(folder.id), hasChildren: folder.hasChildren || hasSubFolders(folder.id) }"
+                            @click.stop="toggleExpand(folder)"
+                          >
+                            <i v-if="folder.hasChildren || hasSubFolders(folder.id)" class="fa-solid fa-chevron-right"></i>
+                          </span>
+                          <i class="fa-regular fa-folder folder-icon" :class="{ 'fa-folder-open': expandedFolderIds.has(folder.id) }"></i>
+                          <span class="folder-name">{{ folder.name }}</span>
+                          <i v-if="loadingFolderId === folder.id" class="fa-solid fa-spinner fa-spin loading-spinner"></i>
+                        </div>
+                        <!-- 子文件夹 -->
+                        <div class="doc-folder-children" :class="{ open: expandedFolderIds.has(folder.id) }">
+                          <template v-if="expandedFolderIds.has(folder.id) && getSubFolders(folder.id).length">
+                            <div
+                              v-for="subFolder in getSubFolders(folder.id)"
+                              :key="subFolder.id"
+                              class="doc-folder-node level-2"
+                              :class="{ active: selectedFolderId === subFolder.id }"
+                            >
+                              <div class="doc-folder-header-row" @click="selectAndExpand(subFolder)">
+                                <span
+                                  class="doc-tree-arrow"
+                                  :class="{ expanded: expandedFolderIds.has(subFolder.id), hasChildren: subFolder.hasChildren || hasSubFolders(subFolder.id) }"
+                                  @click.stop="toggleExpand(subFolder)"
+                                >
+                                  <i v-if="subFolder.hasChildren || hasSubFolders(subFolder.id)" class="fa-solid fa-chevron-right"></i>
+                                </span>
+                                <i class="fa-regular fa-folder folder-icon" :class="{ 'fa-folder-open': expandedFolderIds.has(subFolder.id) }"></i>
+                                <span class="folder-name">{{ subFolder.name }}</span>
+                                <i v-if="loadingFolderId === subFolder.id" class="fa-solid fa-spinner fa-spin loading-spinner"></i>
+                              </div>
+                              <!-- 三级子文件夹 -->
+                              <div class="doc-folder-children" :class="{ open: expandedFolderIds.has(subFolder.id) }">
+                                <template v-if="expandedFolderIds.has(subFolder.id) && getSubFolders(subFolder.id).length">
+                                  <div
+                                    v-for="sub3 in getSubFolders(subFolder.id)"
+                                    :key="sub3.id"
+                                    class="doc-folder-node level-3"
+                                    :class="{ active: selectedFolderId === sub3.id }"
+                                  >
+                                    <div class="doc-folder-header-row" @click="selectAndExpand(sub3)">
+                                      <span class="doc-tree-arrow"></span>
+                                      <i class="fa-regular fa-folder folder-icon"></i>
+                                      <span class="folder-name">{{ sub3.name }}</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <div v-if="modalRootFolders.length === 0" class="doc-folder-empty">
+                      <span>暂无目录</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- 右侧文件列表 -->
+                <div class="doc-file-panel">
+                  <div class="doc-file-header">
+                    <i class="fa-regular fa-file"></i>
+                    <span>文件列表</span>
+                    <span class="doc-file-count">{{ modalFiles.length }} 个</span>
+                  </div>
+                  <div class="doc-file-list" v-if="modalFiles.length">
+                    <div
+                      v-for="file in modalFiles"
+                      :key="file.id"
+                      class="doc-file-item"
+                      :class="{ downloading: downloadingDocId === file.id }"
+                    >
+                      <div class="doc-file-icon" :class="ebCls(file.fileType || '')">
+                        <i :class="fileIconFA(file.fileType || '')"></i>
+                      </div>
+                      <div class="doc-file-info">
+                        <div class="doc-file-name">{{ file.name }}</div>
+                        <div class="doc-file-meta">{{ formatFileSize(file.fileSize || 0) }} · {{ formatDateStr(file.createTime || '') }}</div>
+                      </div>
+                      <button class="doc-file-dl" @click.stop="handleDownloadDoc(file.id)" :disabled="downloadingDocId === file.id" title="下载">
+                        <i :class="downloadingDocId === file.id ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-download'"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div v-else class="doc-file-empty">
+                    <i class="fa-regular fa-file-lines"></i>
+                    <p>暂无文件</p>
+                  </div>
+                </div>
               </div>
             </template>
           </div>
@@ -1248,7 +1405,7 @@ tbody tr:hover .dept-avatar {
 
 .doc-modal {
   width: 100%;
-  max-width: 780px;
+  max-width: 900px;
   max-height: 85vh;
   background: #FFFFFF;
   border-radius: 20px;
@@ -1327,49 +1484,11 @@ tbody tr:hover .dept-avatar {
   background: #F5F5F5;
 }
 
-.doc-modal-search {
-  padding: 12px 28px;
-  border-bottom: 1px solid #F3F3F3;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.doc-modal-search i {
-  position: absolute;
-  left: 40px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 13px;
-  color: #A0A0A0;
-  pointer-events: none;
-}
-
-.doc-modal-search input {
-  width: 100%;
-  height: 38px;
-  border: 1px solid #ECECEC;
-  border-radius: 8px;
-  padding: 0 14px 0 36px;
-  font-size: 13px;
-  color: #1A1A1A;
-  background: #FAFAFA;
-  outline: none;
-  transition: 0.3s;
-  font-family: inherit;
-}
-
-.doc-modal-search input::placeholder { color: #A0A0A0; font-weight: 300; }
-.doc-modal-search input:focus { border-color: #1A1A1A; background: #FFFFFF; box-shadow: 0 0 0 3px rgba(26,26,26,.05); }
-
 .doc-modal-body {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 300px;
-  max-height: 55vh;
 }
-
-.doc-modal-body::-webkit-scrollbar { width: 5px; }
-.doc-modal-body::-webkit-scrollbar-thumb { background: #ECECEC; border-radius: 3px; }
 
 .doc-modal-loading {
   display: flex;
@@ -1384,16 +1503,245 @@ tbody tr:hover .dept-avatar {
 
 .doc-modal-loading i { font-size: 24px; }
 
-.doc-file-tree { padding: 6px 0; }
+.doc-split-view {
+  display: flex;
+  height: 100%;
+}
 
-.doc-modal-empty {
-  padding: 60px 24px;
-  text-align: center;
+.doc-folder-panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid #F3F3F3;
+  display: flex;
+  flex-direction: column;
+  background: #FAFAFA;
+}
+
+.doc-folder-header {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B6B6B;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid #F3F3F3;
+}
+
+.doc-folder-header i { font-size: 12px; color: #D4841C; }
+
+.doc-folder-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.doc-folder-node {
+  margin-bottom: 2px;
+}
+
+.doc-folder-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.doc-folder-header-row:hover { background: #F0F0F0; }
+
+.doc-folder-node.active > .doc-folder-header-row {
+  background: #E8E8E8;
+}
+
+.doc-tree-arrow {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.doc-tree-arrow.hasChildren { cursor: pointer; }
+
+.doc-tree-arrow i {
+  font-size: 10px;
+  color: #A0A0A0;
+  transition: 0.2s;
+}
+
+.doc-tree-arrow.expanded i {
+  transform: rotate(90deg);
+}
+
+.doc-folder-node .folder-icon {
+  font-size: 14px;
+  color: #D4841C;
+  flex-shrink: 0;
+}
+
+.doc-folder-node .folder-name {
+  font-size: 13px;
+  color: #1A1A1A;
+  font-weight: 500;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-folder-node .loading-spinner {
+  font-size: 12px;
   color: #A0A0A0;
 }
 
-.doc-modal-empty i { font-size: 28px; display: block; margin-bottom: 12px; }
-.doc-modal-empty p { font-size: 13px; font-weight: 300; }
+.doc-folder-children {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease;
+}
+
+.doc-folder-children.open {
+  max-height: 1000px;
+}
+
+.doc-folder-node.level-2 .doc-folder-header-row {
+  padding-left: 26px;
+}
+
+.doc-folder-node.level-3 .doc-folder-header-row {
+  padding-left: 42px;
+}
+
+.doc-folder-empty {
+  padding: 24px;
+  text-align: center;
+  color: #A0A0A0;
+  font-size: 13px;
+}
+
+.doc-file-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.doc-file-header {
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B6B6B;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid #F3F3F3;
+  background: #FAFAFA;
+}
+
+.doc-file-header i { font-size: 12px; }
+
+.doc-file-count {
+  font-size: 11px;
+  color: #A0A0A0;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.doc-file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px;
+}
+
+.doc-file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  transition: 0.2s;
+  background: #FFFFFF;
+  margin-bottom: 4px;
+}
+
+.doc-file-item:hover {
+  background: #F5F5F5;
+}
+
+.doc-file-item.downloading {
+  opacity: 0.6;
+}
+
+.doc-file-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.eb-xlsx { background: #EFF7F2; color: #2D8B55; }
+.eb-docx { background: #EEF3F9; color: #3B6FB5; }
+.eb-pdf { background: #FCEEEC; color: #C44536; }
+.eb-pptx { background: #FDF3E7; color: #D4841C; }
+
+.doc-file-info { flex: 1; min-width: 0; }
+
+.doc-file-name {
+  font-size: 14px;
+  color: #1A1A1A;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-file-meta {
+  font-size: 11px;
+  color: #A0A0A0;
+  margin-top: 2px;
+}
+
+.doc-file-dl {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #ECECEC;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #A0A0A0;
+  font-size: 12px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: 0.2s;
+}
+
+.doc-file-item:hover .doc-file-dl { opacity: 1; }
+.doc-file-dl:hover { border-color: #1A1A1A; color: #1A1A1A; background: #F5F5F5; }
+.doc-file-dl:disabled { opacity: 1; cursor: not-allowed; }
+
+.doc-file-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  color: #A0A0A0;
+}
+
+.doc-file-empty i { font-size: 32px; display: block; margin-bottom: 12px; }
+.doc-file-empty p { font-size: 13px; font-weight: 300; }
 
 .doc-modal-footer {
   padding: 12px 28px;
