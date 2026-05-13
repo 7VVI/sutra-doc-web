@@ -434,7 +434,7 @@ function handleBarSubmit() {
             </div>
           </div>
           <div class="search-field" :class="{ 'chat-mode': currentMode === 'chat' }">
-            <i :class="currentMode === 'search' ? 'fa-solid fa-magnifying-glass' : 'fa-solid fa-comments'"></i>
+            <i :class="currentMode === 'search' ? 'fa-solid fa-magnifying-glass' : 'fa-solid fa-comments'" class="search-field-icon" @click="router.push('/portal/chat')" style="cursor:pointer"></i>
             <input type="text" class="search-input"
                    v-model="searchBarValue"
                    :placeholder="currentMode === 'search' ? '输入文件名、关键词或文件类型...' : '输入您的问题，如「财务中心最近提交了哪些报表？」'"
@@ -757,7 +757,7 @@ function handleBarSubmit() {
   margin-bottom: 8px;
   font-size: 12px;
   font-weight: 400;
-  color: #A0A0A0;
+  color: #6366F1;
   cursor: pointer;
   transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
@@ -787,27 +787,15 @@ function handleBarSubmit() {
 }
 
 .mode-link:hover {
-  color: #1A1A1A;
+  color: #7C7FF7;
 }
 
 .mode-link:hover::after {
   opacity: 0.6;
-  background: #1A1A1A;
+  background: #7C7FF7;
 }
 
 .mode-link:hover i {
-  color: #1A1A1A;
-}
-
-.mode-link.chat {
-  color: #6366F1;
-}
-
-.mode-link.chat:hover {
-  color: #7C7FF7;
-}
-
-.mode-link.chat:hover i {
   color: #7C7FF7;
 }
 
@@ -1039,6 +1027,10 @@ function handleBarSubmit() {
   color: #A0A0A0;
   margin-left: 16px;
   transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.search-field-icon:hover {
+  color: #6366F1 !important;
 }
 
 .search-bar:focus-within .search-field i {

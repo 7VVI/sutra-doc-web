@@ -269,15 +269,22 @@ function copyMessage(text: string) {
 // ===== 初始化 =====
 onMounted(() => {
   loadConversations();
-  if (conversations.value.length === 0) {
-    createConversation();
-  } else {
-    activeConvId.value = sortedConversations.value[0]!.id;
-  }
-  // 如果带了问题参数，自动发送
+
   const q = (route.query.q as string)?.trim();
-  if (q && activeConv.value) {
-    nextTick(() => sendMessage(q));
+
+  if (q) {
+    // 从首页带着问题进入：每次新建对话
+    createConversation();
+    if (activeConv.value) {
+      nextTick(() => sendMessage(q));
+    }
+  } else {
+    // 直接进入聊天页：恢复上次对话，没有则新建空对话
+    if (conversations.value.length === 0) {
+      createConversation();
+    } else {
+      activeConvId.value = sortedConversations.value[0]!.id;
+    }
   }
 });
 </script>
