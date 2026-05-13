@@ -145,11 +145,29 @@ const coreRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'lundao',
+        name: 'PortalLunDao',
+        component: () => import('#/views/portal/index.vue'),
+        meta: {
+          title: '论道台 - 学习专题',
+          ignoreAccess: true,
+        },
+      },
+      {
         path: 'search',
         name: 'PortalSearch',
         component: () => import('#/views/portal/search.vue'),
         meta: {
           title: '藏经阁 - 搜索结果',
+          ignoreAccess: true,
+        },
+      },
+      {
+        path: 'chat',
+        name: 'PortalChat',
+        component: () => import('#/views/portal/chat.vue'),
+        meta: {
+          title: '藏经阁 - 智能问答',
           ignoreAccess: true,
         },
       },

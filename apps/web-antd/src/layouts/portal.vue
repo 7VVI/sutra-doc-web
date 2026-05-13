@@ -3,6 +3,7 @@ import { computed, ref, provide, readonly, onMounted, onUnmounted, watch } from 
 
 import iconDocs from '#/assets/藏经阁.svg';
 import iconMuke from '#/assets/讲武堂.svg';
+import iconLunDao from '#/assets/论道台.svg';
 
 import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
@@ -34,12 +35,16 @@ function setActiveTab(tab: string) {
     router.push('/portal');
   } else if (tab === 'muke') {
     router.push('/portal/muke');
+  } else if (tab === 'lundao') {
+    router.push('/portal/lundao');
   }
 }
 
 // 同步路由到tab状态
 watch(() => route.path, (path) => {
-  if (path.includes('/portal/muke')) {
+  if (path.includes('/portal/lundao')) {
+    activeTab.value = 'lundao';
+  } else if (path.includes('/portal/muke')) {
     activeTab.value = 'muke';
   } else {
     activeTab.value = 'docs';
@@ -160,6 +165,9 @@ onUnmounted(() => {
         </button>
         <button class="nav-tab" :class="{ active: activeTab === 'muke' }" @click="setActiveTab('muke')">
           <img :src="iconMuke" class="nav-tab-icon" />讲武堂
+        </button>
+        <button class="nav-tab" :class="{ active: activeTab === 'lundao' }" @click="setActiveTab('lundao')">
+          <img :src="iconLunDao" class="nav-tab-icon" />论道台
         </button>
       </div>
       <!-- 右侧：用户头像 -->

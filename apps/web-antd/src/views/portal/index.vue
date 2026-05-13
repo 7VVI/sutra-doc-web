@@ -2,6 +2,7 @@
 import { inject, type Ref } from 'vue';
 import DocsView from './docs.vue';
 import MukeView from './muke.vue';
+import LunDaoView from './lunDao.vue';
 
 // 从父组件获取 activeTab
 const activeTab = inject<Ref<string>>('portalActiveTab');
@@ -12,6 +13,7 @@ const activeTab = inject<Ref<string>>('portalActiveTab');
     <div class="page-content">
       <DocsView v-if="activeTab === 'docs'" />
       <MukeView v-if="activeTab === 'muke'" />
+      <LunDaoView v-if="activeTab === 'lundao'" />
     </div>
   </div>
 </template>

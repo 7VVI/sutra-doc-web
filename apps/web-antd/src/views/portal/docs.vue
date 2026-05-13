@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { getDashboardStat, getDeptStatList, getDeptList, searchDoc, getDeptDocTree, downloadDoc as apiDownloadDoc } from '#/api/kb';
 import type { DeptDocTreeNode } from '#/api/kb';
 
 const router = useRouter();
+const route = useRoute();
 
 const deptIcons = ['fa-solid fa-building', 'fa-solid fa-flask', 'fa-solid fa-users',
   'fa-solid fa-bullhorn', 'fa-solid fa-truck', 'fa-solid fa-shield-halved',
@@ -180,6 +181,11 @@ onMounted(async () => {
     selectedDepts.value = new Set(allDepts.value.map(d => d.deptName));
   } catch (e) {
     console.error('加载统计数据失败:', e);
+  }
+
+  // 从聊天页返回时保持智能问答模式
+  if (route.query.mode === 'chat') {
+    currentMode.value = 'chat';
   }
 });
 
@@ -357,6 +363,34 @@ async function handleDownloadDoc(docId: number) {
   }
 }
 
+// ===== 模式切换 =====
+const currentMode = ref<'search' | 'chat'>('search');
+const chatInput = ref('');
+const searchBarValue = computed({
+  get: () => currentMode.value === 'search' ? searchTerm.value : chatInput.value,
+  set: (val: string) => { if (currentMode.value === 'search') searchTerm.value = val; else chatInput.value = val; },
+});
+
+function switchToChat() {
+  currentMode.value = 'chat';
+}
+
+function switchToSearch() {
+  currentMode.value = 'search';
+  chatInput.value = '';
+}
+
+function handleBarSubmit() {
+  if (currentMode.value === 'search') {
+    doSearch();
+  } else {
+    const q = chatInput.value.trim();
+    if (q) {
+      router.push({ path: '/portal/chat', query: { q } });
+    }
+  }
+}
+
 </script>
 
 <template>
@@ -364,12 +398,18 @@ async function handleDownloadDoc(docId: number) {
     <!-- Hero区域 -->
     <section class="hero">
       <h1 class="hero-title">藏经阁</h1>
-      <p class="hero-desc">让每一份文档，触手可及</p>
+      <!-- 模式切换 -->
+      <button class="mode-link" :class="{ chat: currentMode === 'chat' }" @click="currentMode === 'search' ? switchToChat() : switchToSearch()">
+        <i :class="currentMode === 'search' ? 'fa-solid fa-comments' : 'fa-solid fa-folder-open'"></i>
+        {{ currentMode === 'search' ? '智能问答' : '文档检索' }}
+      </button>
+      <p class="hero-desc">{{ currentMode === 'search' ? '让每一份文档，触手可及' : '输入问题后发送，进入智能问答' }}</p>
 
-      <!-- 搜索栏 -->
+      <!-- 搜索栏（两种模式共用） -->
       <div class="search-core">
         <div class="search-bar">
-          <div class="dept-picker" ref="deptPickerRef" :class="{ open: deptPickerOpen }" @click.stop="deptPickerOpen = !deptPickerOpen">
+          <!-- 部门选择器：仅检索模式 -->
+          <div v-if="currentMode === 'search'" class="dept-picker" ref="deptPickerRef" :class="{ open: deptPickerOpen }" @click.stop="deptPickerOpen = !deptPickerOpen">
             <div class="dept-picker-icon">
               <i class="fa-regular fa-building"></i>
             </div>
@@ -393,19 +433,25 @@ async function handleDownloadDoc(docId: number) {
               </div>
             </div>
           </div>
-          <div class="search-field">
-            <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="text" class="search-input" v-model="searchTerm" placeholder="输入文件名、关键词或文件类型..." @keyup.enter="doSearch">
+          <div class="search-field" :class="{ 'chat-mode': currentMode === 'chat' }">
+            <i :class="currentMode === 'search' ? 'fa-solid fa-magnifying-glass' : 'fa-solid fa-comments'"></i>
+            <input type="text" class="search-input"
+                   v-model="searchBarValue"
+                   :placeholder="currentMode === 'search' ? '输入文件名、关键词或文件类型...' : '输入您的问题，如「财务中心最近提交了哪些报表？」'"
+                   @keyup.enter="handleBarSubmit()">
           </div>
-          <button class="search-submit" @click="doSearch" :disabled="searching">
-            <template v-if="searching"><i class="fa-solid fa-spinner fa-spin"></i>查询中</template>
-            <template v-else><i class="fa-solid fa-magnifying-glass"></i>查询</template>
+          <button class="search-submit" @click="handleBarSubmit()" :disabled="currentMode === 'search' && searching">
+            <template v-if="currentMode === 'chat'">
+              <i class="fa-solid fa-paper-plane" style="font-size:12px"></i>发送
+            </template>
+            <template v-else-if="searching"><i class="fa-solid fa-spinner fa-spin"></i>查询中</template>
+            <template v-else><i class="fa-solid fa-magnifying-glass" style="font-size:12px"></i>查询</template>
           </button>
         </div>
       </div>
 
-      <!-- 类型筛选 -->
-      <div class="type-bar">
+      <!-- 类型筛选：仅检索模式 -->
+      <div v-if="currentMode === 'search'" class="type-bar">
         <span class="type-label">类型</span>
         <button class="type-tag" :class="{ active: currentType === 'all' }" @click="currentType = 'all'">
           <span class="dot d-all"></span>全部
@@ -690,7 +736,7 @@ async function handleDownloadDoc(docId: number) {
   letter-spacing: -1px;
   line-height: 1;
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   color: #1A1A1A;
 }
 
@@ -700,6 +746,69 @@ async function handleDownloadDoc(docId: number) {
   font-style: italic;
   opacity: 0.12;
   font-size: 48px;
+}
+
+/* 模式切换按钮 */
+.mode-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #A0A0A0;
+  cursor: pointer;
+  transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  border: none;
+  background: none;
+  font-family: inherit;
+  padding: 0;
+  position: relative;
+  letter-spacing: 0;
+}
+
+.mode-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.3;
+  transition: 0.25s;
+}
+
+.mode-link i {
+  font-size: 12px;
+  transition: 0.25s;
+}
+
+.mode-link:hover {
+  color: #1A1A1A;
+}
+
+.mode-link:hover::after {
+  opacity: 0.6;
+  background: #1A1A1A;
+}
+
+.mode-link:hover i {
+  color: #1A1A1A;
+}
+
+.mode-link.chat {
+  color: #6366F1;
+}
+
+.mode-link.chat:hover {
+  color: #7C7FF7;
+}
+
+.mode-link.chat:hover i {
+  color: #7C7FF7;
 }
 
 .hero-desc {
@@ -919,6 +1028,10 @@ async function handleDownloadDoc(docId: number) {
   flex: 1;
   display: flex;
   align-items: center;
+}
+
+.search-field.chat-mode {
+  padding-left: 16px;
 }
 
 .search-field i {
