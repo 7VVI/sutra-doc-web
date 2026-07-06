@@ -54,7 +54,42 @@ admin 账号: admin admin123
 
 ## 预览图
 
-![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/1.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/2.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/3.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/4.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/5.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/6.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/7.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/8.png) ![图片](https://github.com/imdap/ruoyi-plus-vben5/raw/main/scripts/preview/9.png)
+### 主要功能页面
+
+<div align="center">
+  <img src="scripts/preview/main_page.png" alt="主页" width="45%">
+  <img src="scripts/preview/topic_page.png" alt="论道台" width="45%">
+</div>
+
+<div align="center">
+  <img src="scripts/preview/video_page.png" alt="视频页面" width="45%">
+  <img src="scripts/preview/folder.png" alt="藏经阁" width="45%">
+</div>
+
+### AI智能助手
+
+<div align="center">
+  <img src="scripts/preview/ai_agent.png" alt="AI智能助手" width="90%">
+</div>
+
+### 文档管理
+
+<div align="center">
+  <img src="scripts/preview/doc_center.png" alt="文档中心" width="45%">
+  <img src="scripts/preview/doc_log.png" alt="文档日志" width="45%">
+</div>
+
+<div align="center">
+  <img src="scripts/preview/doc_watch.png" alt="文档关注" width="45%">
+  <img src="scripts/preview/folder.png" alt="文档目录" width="45%">
+</div>
+
+### 视频功能
+
+<div align="center">
+  <img src="scripts/preview/video.png" alt="视频管理" width="45%">
+  <img src="scripts/preview/paly_video.png" alt="视频播放" width="45%">
+</div>
 
 ## 安装使用
 
